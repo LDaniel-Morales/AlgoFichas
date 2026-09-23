@@ -1,0 +1,23 @@
+*.iml
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+openCV/build
+# Librerías estáticas de desarrollo nativo C++ del SDK de OpenCV (no usadas: este proyecto
+# solo consume los bindings Java). Si se necesita compilar C++ contra OpenCV, restaurarlas
+# desde el SDK original.
+openCV/native/staticlibs
+openCV/native/3rdparty
+# Ejecutables de test unitario del propio OpenCV, no relacionados con la app.
+openCV/native/bin
+/captures
+.externalNativeBuild
+.cxx
+local.properties
