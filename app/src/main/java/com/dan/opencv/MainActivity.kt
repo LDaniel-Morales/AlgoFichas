@@ -13,12 +13,22 @@ import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -26,17 +36,27 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import com.dan.opencv.ui.HomeScreen
+import com.dan.opencv.ui.theme.Fondo
 import com.dan.opencv.ui.theme.OpencvTheme
+import com.dan.opencv.ui.theme.TarjetaFondo
+import com.dan.opencv.ui.theme.VerdeFuerte
 import com.dan.opencv.vision.FrameAnalyzer
 import com.dan.opencv.vision.FrameResult
 import java.util.concurrent.Executors
+
+private enum class AppScreen { HOME, SCAN }
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -44,18 +64,56 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             OpencvTheme {
+                var screen by rememberSaveable { mutableStateOf(AppScreen.HOME) }
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    CameraLogicScreen(modifier = Modifier.padding(innerPadding))
+                    when (screen) {
+                        AppScreen.HOME -> HomeScreen(
+                            onScanClick = { screen = AppScreen.SCAN },
+                            modifier = Modifier.padding(innerPadding)
+                        )
+                        AppScreen.SCAN -> ScanScreen(
+                            onBack = { screen = AppScreen.HOME },
+                            modifier = Modifier.padding(innerPadding)
+                        )
+                    }
                 }
             }
         }
     }
 }
 
+/** Pantalla de escaneo: barra superior con volver + la lógica de cámara existente. */
+@Composable
+fun ScanScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
+    Column(modifier = modifier.fillMaxSize().background(Fondo)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .windowInsetsPadding(WindowInsets.statusBars)
+                .background(TarjetaFondo)
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(Fondo)
+                    .clickable(onClick = onBack),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("‹", color = VerdeFuerte, fontSize = 24.sp)
+            }
+            Text("Escanear fichas", color = VerdeFuerte, fontSize = 18.sp)
+        }
+        CameraLogicScreen(modifier = Modifier.fillMaxWidth().weight(1f))
+    }
+}
+
 /**
- * Pantalla sin diseño propio (componentes por defecto de Material3): gestiona el permiso
- * de cámara y, una vez concedido, muestra la vista previa junto con el listado de fichas
- * detectadas en el frame más reciente.
+ * Gestiona el permiso de cámara y, una vez concedido, muestra la vista previa junto con
+ * el listado de fichas detectadas en el frame más reciente.
  */
 @Composable
 fun CameraLogicScreen(modifier: Modifier = Modifier) {
