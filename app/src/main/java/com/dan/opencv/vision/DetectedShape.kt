@@ -23,3 +23,12 @@ data class DetectedShape(
     val boundingBox: Rect,
     val areaPx: Double
 )
+
+/**
+ * Salida de [ShapeDetector.detect]: las fichas encontradas y cuántos contornos se descartaron
+ * por verse rotos (sirve para avisar que el fondo está dificultando la detección).
+ */
+data class DetectionOutput(
+    val shapes: List<DetectedShape>,
+    val fragmentosDescartados: Int
+)

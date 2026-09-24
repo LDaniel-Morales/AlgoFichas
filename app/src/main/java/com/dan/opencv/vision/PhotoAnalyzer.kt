@@ -24,9 +24,13 @@ object PhotoAnalyzer {
         val rgba = Mat()
         Utils.bitmapToMat(working, rgba)
         return try {
-            val shapes = ShapeDetector.detect(rgba)
-            val positioned = FlowPositionAnalyzer.analyze(shapes)
-            FrameResult(positioned, working.width, working.height)
+            val deteccion = ShapeDetector.detect(rgba)
+            val positioned = FlowPositionAnalyzer.analyze(deteccion.shapes)
+            // Más piezas rotas que fichas enteras: el fondo probablemente está confundiendo al detector.
+            val aviso = if (deteccion.shapes.isNotEmpty() && deteccion.fragmentosDescartados > deteccion.shapes.size) {
+                "El fondo dificulta ver algunas fichas. Si falta alguna, prueba sobre una superficie lisa de otro color."
+            } else null
+            FrameResult(positioned, working.width, working.height, aviso)
         } finally {
             rgba.release()
             if (working !== bitmap) working.recycle()

@@ -4,6 +4,7 @@ import android.util.Log
 import org.opencv.core.Core
 import org.opencv.core.CvType
 import org.opencv.core.Mat
+import org.opencv.core.MatOfFloat
 import org.opencv.core.MatOfInt
 import org.opencv.core.MatOfInt4
 import org.opencv.core.MatOfPoint
@@ -69,12 +70,27 @@ object ShapeDetector {
      * clasificación final) para poder afinar los umbrales con datos reales en vez de a
      * ciegas. Pensado para prenderse temporalmente durante una sesión de calibración.
      */
-    var debugLogging: Boolean = false // poner en true para volcar por logcat (tag ShapeDebug) las métricas internas de cada contorno al calibrar
+    var debugLogging: Boolean = true // poner en true para volcar por logcat (tag ShapeDebug) las métricas internas de cada contorno al calibrar
     private const val DEBUG_TAG = "ShapeDebug"
 
     // --- Filtro de tamaño ---
     private const val MIN_AREA_RATIO = 0.0012
     private const val MAX_AREA_RATIO = 0.85
+
+    // --- Segmentación multi-método (ver docs/deteccion-fondos.md) ---
+    private const val MEAN_SHIFT_SPATIAL_RADIUS = 10.0
+    private const val MEAN_SHIFT_COLOR_RADIUS = 25.0
+    private const val CANNY_L_LOW = 40.0
+    private const val CANNY_L_HIGH = 120.0
+    private const val CANNY_AB_LOW = 15.0
+    private const val CANNY_AB_HIGH = 45.0
+    private const val BORDER_SAMPLE_FRACTION = 0.05
+    private const val BACKGROUND_L_WEIGHT = 0.5
+    private const val MIN_BACKGROUND_DISTANCE = 12.0
+    private const val MIN_CANDIDATE_SOLIDITY = 0.75
+    private const val DUPLICATE_IOU = 0.4
+    private const val BORDER_MARGIN_PX = 3
+    private const val LONE_SMALL_AREA_FRACTION = 0.3
 
     // --- Aproximación poligonal ---
     private const val APPROX_EPSILON_FRACTION = 0.015
@@ -111,101 +127,316 @@ object ShapeDetector {
         if (debugLogging) Log.d(DEBUG_TAG, message())
     }
 
-    fun detect(rgba: Mat): List<DetectedShape> {
+    /** Un contorno candidato a ficha, propuesto por uno de los métodos de segmentación. */
+    private class Candidato(
+        val metodo: String,
+        val contour: MatOfPoint,
+        val area: Double,
+        val solidez: Double,
+        val rect: Rect
+    ) {
+        /** Cuántos métodos propusieron esta misma ficha (se llena en [selectBest]). */
+        var votos = 1
+    }
+
+    /**
+     * Detecta las fichas combinando varios métodos de segmentación, para no depender del
+     * material/color del fondo (análisis completo en docs/deteccion-fondos.md):
+     *  1. Suaviza la textura del fondo (vetas, grano) con mean-shift, conservando bordes.
+     *  2. Genera candidatos con 3 máscaras: bordes por canal Lab, saturación (Otsu) y
+     *     distancia al color de fondo estimado en las orillas de la foto.
+     *  3. Descarta candidatos rotos (poca solidez), los que tocan el borde de la foto (objetos
+     *     cortados, como una laptop al costado) y se queda con el mejor por ficha.
+     */
+    fun detect(rgba: Mat): DetectionOutput {
         val frameArea = rgba.rows().toDouble() * rgba.cols().toDouble()
         val minArea = frameArea * MIN_AREA_RATIO
         val maxArea = frameArea * MAX_AREA_RATIO
 
-        val gray = Mat()
-        val edges = Mat()
         val rgb = Mat()
+        val smooth = Mat()
         val hsv = Mat()
-        val hierarchy = Mat()
-        val contours = ArrayList<MatOfPoint>()
-
+        val lab = Mat()
+        val edges = Mat()
+        val masks = ArrayList<Pair<String, Mat>>()
+        val candidatos = ArrayList<Candidato>()
         val results = ArrayList<DetectedShape>()
+        var fragmentos = 0
 
         try {
-            Imgproc.cvtColor(rgba, gray, Imgproc.COLOR_RGBA2GRAY)
-            Imgproc.GaussianBlur(gray, gray, Size(5.0, 5.0), 0.0)
-            Imgproc.Canny(gray, edges, 50.0, 150.0)
-            Imgproc.dilate(edges, edges, Mat(), Point(-1.0, -1.0), 1)
-
             Imgproc.cvtColor(rgba, rgb, Imgproc.COLOR_RGBA2RGB)
-            Imgproc.cvtColor(rgb, hsv, Imgproc.COLOR_RGB2HSV)
+            val t0 = System.currentTimeMillis()
+            Imgproc.pyrMeanShiftFiltering(rgb, smooth, MEAN_SHIFT_SPATIAL_RADIUS, MEAN_SHIFT_COLOR_RADIUS)
+            dlog { "=== detect(): frame ${rgba.cols()}x${rgba.rows()}, minArea=${minArea.toInt()} maxArea=${maxArea.toInt()}, mean-shift ${System.currentTimeMillis() - t0} ms ===" }
 
-            Imgproc.findContours(
-                edges, contours, hierarchy,
-                Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE
-            )
+            Imgproc.cvtColor(smooth, hsv, Imgproc.COLOR_RGB2HSV)
+            Imgproc.cvtColor(smooth, lab, Imgproc.COLOR_RGB2Lab)
 
-            dlog { "=== detect(): frame ${rgba.cols()}x${rgba.rows()}, ${contours.size} contornos crudos, minArea=${minArea.toInt()} maxArea=${maxArea.toInt()} ===" }
+            colorEdges(lab, edges)
+            masks += "bordes" to closedEdgesMask(edges)
+            masks += "saturacion" to saturationMask(hsv)
+            masks += "fondo" to backgroundDistanceMask(lab)
 
-            var nextId = 0
-            contours.forEachIndexed { rawIdx, contour ->
-                val area = Geometry.contourArea(contour)
-                if (area < minArea || area > maxArea) {
-                    dlog { "contorno[$rawIdx]: descartado por área (${area.toInt()})" }
-                    return@forEachIndexed
-                }
+            for ((metodo, mask) in masks) {
+                fragmentos = maxOf(fragmentos, extractCandidates(metodo, mask, minArea, maxArea, candidatos))
+            }
 
-                val contour2f = MatOfPoint2f(*contour.toArray())
-                val perimeter = Geometry.arcLength(contour2f, true)
-                if (perimeter <= 0) {
-                    contour2f.release()
-                    return@forEachIndexed
-                }
+            val elegidos = selectBest(candidatos)
+            dlog { "elegidos ${elegidos.size} de ${candidatos.size} candidatos; fragmentos descartados (máx por método)=$fragmentos" }
 
-                val approx2f = MatOfPoint2f()
-                Geometry.approxPolyDP(contour2f, approx2f, APPROX_EPSILON_FRACTION * perimeter, true)
-                val approxPoints = approx2f.toArray()
-
-                dlog { "contorno[$rawIdx]: area=${area.toInt()} perim=${perimeter.toInt()} vertices=${approxPoints.size}" }
-
-                val boundingBox = Geometry.boundingRect(contour)
-                var type = classifyShape(approxPoints, area, perimeter, contour, contour2f, rawIdx)
-                if (type == ShapeType.RECTANGLE && hasInternalVerticalLines(edges, boundingBox)) {
-                    type = ShapeType.PREDEFINED_PROCESS
-                    dlog { "contorno[$rawIdx]: RECTANGLE -> PREDEFINED_PROCESS (líneas internas detectadas)" }
-                }
-
-                val moments = Geometry.moments(contour)
-                if (moments.m00 == 0.0) {
-                    contour2f.release(); approx2f.release()
-                    return@forEachIndexed
-                }
-                val cx = moments.m10 / moments.m00
-                val cy = moments.m01 / moments.m00
-
-                val colorName = meanColorName(hsv, contour)
-
-                dlog { "contorno[$rawIdx]: FINAL tipo=$type color=$colorName pos=(${cx.toInt()},${cy.toInt()})" }
-
-                results.add(
-                    DetectedShape(
-                        id = nextId++,
-                        type = type,
-                        colorName = colorName,
-                        centerX = cx,
-                        centerY = cy,
-                        boundingBox = boundingBox,
-                        areaPx = area
-                    )
-                )
-
-                contour2f.release()
-                approx2f.release()
+            elegidos.forEachIndexed { idx, c ->
+                classifyCandidate(idx, c, edges, hsv)?.let { results += it }
             }
         } finally {
-            gray.release()
-            edges.release()
             rgb.release()
+            smooth.release()
             hsv.release()
-            hierarchy.release()
-            contours.forEach { it.release() }
+            lab.release()
+            edges.release()
+            masks.forEach { it.second.release() }
+            candidatos.forEach { it.contour.release() }
         }
 
-        return results
+        return DetectionOutput(results, fragmentos)
+    }
+
+    private fun classifyCandidate(idx: Int, c: Candidato, edges: Mat, hsv: Mat): DetectedShape? {
+        val contour = c.contour
+        val contour2f = MatOfPoint2f(*contour.toArray())
+        val approx2f = MatOfPoint2f()
+        try {
+            val perimeter = Geometry.arcLength(contour2f, true)
+            if (perimeter <= 0) return null
+            Geometry.approxPolyDP(contour2f, approx2f, APPROX_EPSILON_FRACTION * perimeter, true)
+            val approxPoints = approx2f.toArray()
+
+            dlog { "ficha[$idx] (${c.metodo}): area=${c.area.toInt()} perim=${perimeter.toInt()} vertices=${approxPoints.size} solidez=${"%.2f".format(c.solidez)}" }
+
+            var type = classifyShape(approxPoints, c.area, perimeter, contour, contour2f, idx)
+            if (type == ShapeType.RECTANGLE && hasInternalVerticalLines(edges, c.rect)) {
+                type = ShapeType.PREDEFINED_PROCESS
+                dlog { "ficha[$idx]: RECTANGLE -> PREDEFINED_PROCESS (líneas internas detectadas)" }
+            }
+
+            val moments = Geometry.moments(contour)
+            if (moments.m00 == 0.0) return null
+            val cx = moments.m10 / moments.m00
+            val cy = moments.m01 / moments.m00
+            val colorName = meanColorName(hsv, contour)
+
+            dlog { "ficha[$idx]: FINAL tipo=$type color=$colorName pos=(${cx.toInt()},${cy.toInt()})" }
+            return DetectedShape(
+                id = idx,
+                type = type,
+                colorName = colorName,
+                centerX = cx,
+                centerY = cy,
+                boundingBox = c.rect,
+                areaPx = c.area
+            )
+        } finally {
+            contour2f.release()
+            approx2f.release()
+        }
+    }
+
+    /** Método B: Canny en cada canal Lab (brillo + dos ejes de color), unidos. Sin cerrar. */
+    private fun colorEdges(lab: Mat, out: Mat) {
+        val channels = ArrayList<Mat>()
+        Core.split(lab, channels)
+        val tmp = Mat()
+        try {
+            Imgproc.Canny(channels[0], out, CANNY_L_LOW, CANNY_L_HIGH)
+            for (i in 1..2) {
+                Imgproc.Canny(channels[i], tmp, CANNY_AB_LOW, CANNY_AB_HIGH)
+                Core.bitwise_or(out, tmp, out)
+            }
+        } finally {
+            tmp.release()
+            channels.forEach { it.release() }
+        }
+    }
+
+    private fun closedEdgesMask(edges: Mat): Mat {
+        val mask = Mat()
+        val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, Size(7.0, 7.0))
+        Imgproc.morphologyEx(edges, mask, Imgproc.MORPH_CLOSE, kernel, Point(-1.0, -1.0), 2)
+        kernel.release()
+        return mask
+    }
+
+    /** Método A: zonas más saturadas que el resto (Otsu). Si "lo saturado" es la mayoría, es el fondo: se invierte. */
+    private fun saturationMask(hsv: Mat): Mat {
+        val channels = ArrayList<Mat>()
+        Core.split(hsv, channels)
+        val mask = Mat()
+        try {
+            Imgproc.threshold(channels[1], mask, 0.0, 255.0, Imgproc.THRESH_BINARY or Imgproc.THRESH_OTSU)
+            if (Core.countNonZero(mask) > mask.total() / 2) Core.bitwise_not(mask, mask)
+            openMask(mask)
+        } finally {
+            channels.forEach { it.release() }
+        }
+        return mask
+    }
+
+    /**
+     * Método C: estima el color del fondo como la mediana Lab de una franja en las orillas
+     * de la foto, y marca todo lo que se aleje de él. El brillo pesa la mitad, para que las
+     * sombras suaves no cuenten como ficha.
+     */
+    private fun backgroundDistanceMask(lab: Mat): Mat {
+        val bg = borderMedianLab(lab)
+        dlog { "fondo estimado Lab=(${bg[0].toInt()},${bg[1].toInt()},${bg[2].toInt()})" }
+
+        val diff = Mat()
+        val channels = ArrayList<Mat>()
+        val dist = Mat()
+        val mask = Mat()
+        try {
+            Core.absdiff(lab, Scalar(bg[0], bg[1], bg[2]), diff)
+            diff.convertTo(diff, CvType.CV_32FC3)
+            Core.split(diff, channels)
+            Core.multiply(channels[0], Scalar(BACKGROUND_L_WEIGHT), channels[0])
+            channels.forEach { Core.multiply(it, it, it) }
+            Core.add(channels[0], channels[1], dist)
+            Core.add(dist, channels[2], dist)
+            Core.sqrt(dist, dist)
+            dist.convertTo(dist, CvType.CV_8U)
+
+            val otsu = Imgproc.threshold(dist, mask, 0.0, 255.0, Imgproc.THRESH_BINARY or Imgproc.THRESH_OTSU)
+            if (otsu < MIN_BACKGROUND_DISTANCE) {
+                Imgproc.threshold(dist, mask, MIN_BACKGROUND_DISTANCE, 255.0, Imgproc.THRESH_BINARY)
+            }
+            dlog { "fondo: umbral Otsu=${otsu.toInt()} (mínimo $MIN_BACKGROUND_DISTANCE)" }
+            openMask(mask)
+        } finally {
+            diff.release()
+            channels.forEach { it.release() }
+            dist.release()
+        }
+        return mask
+    }
+
+    private fun borderMedianLab(lab: Mat): DoubleArray {
+        val band = (minOf(lab.rows(), lab.cols()) * BORDER_SAMPLE_FRACTION).toInt().coerceAtLeast(1)
+        val strips = listOf(
+            Rect(0, 0, lab.cols(), band),
+            Rect(0, lab.rows() - band, lab.cols(), band),
+            Rect(0, band, band, lab.rows() - 2 * band),
+            Rect(lab.cols() - band, band, band, lab.rows() - 2 * band)
+        )
+        val hist = Array(3) { IntArray(256) }
+        var total = 0
+        for (r in strips) {
+            val strip = Mat(lab, r).clone()
+            val bytes = ByteArray((strip.total() * 3).toInt())
+            strip.get(0, 0, bytes)
+            strip.release()
+            for (i in bytes.indices) hist[i % 3][bytes[i].toInt() and 0xFF]++
+            total += bytes.size / 3
+        }
+        return DoubleArray(3) { ch ->
+            var acc = 0
+            var v = 0
+            while (v < 255 && acc + hist[ch][v] < total / 2) { acc += hist[ch][v]; v++ }
+            v.toDouble()
+        }
+    }
+
+    private fun openMask(mask: Mat) {
+        val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, Size(5.0, 5.0))
+        Imgproc.morphologyEx(mask, mask, Imgproc.MORPH_OPEN, kernel)
+        kernel.release()
+    }
+
+    /**
+     * Extrae los contornos externos de una máscara y agrega a [out] los que parecen una ficha
+     * entera. Devuelve cuántos se descartaron por verse rotos (poca solidez), para el aviso de
+     * "fondo difícil".
+     */
+    private fun extractCandidates(
+        metodo: String,
+        mask: Mat,
+        minArea: Double,
+        maxArea: Double,
+        out: MutableList<Candidato>
+    ): Int {
+        val contours = ArrayList<MatOfPoint>()
+        val hierarchy = Mat()
+        Imgproc.findContours(mask, contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
+        hierarchy.release()
+
+        var fragmentos = 0
+        var aceptados = 0
+        for (contour in contours) {
+            val area = Geometry.contourArea(contour)
+            if (area < minArea || area > maxArea) { contour.release(); continue }
+
+            val rect = Geometry.boundingRect(contour)
+            val tocaBorde = rect.x <= BORDER_MARGIN_PX || rect.y <= BORDER_MARGIN_PX ||
+                rect.x + rect.width >= mask.cols() - BORDER_MARGIN_PX ||
+                rect.y + rect.height >= mask.rows() - BORDER_MARGIN_PX
+            if (tocaBorde) {
+                dlog { "[$metodo] descartado: toca el borde de la foto area=${area.toInt()} pos=(${rect.x},${rect.y})" }
+                contour.release(); continue
+            }
+
+            val solidez = convexStats(contour).first
+            if (solidez < MIN_CANDIDATE_SOLIDITY) {
+                fragmentos++
+                dlog { "[$metodo] descartado: fragmento solidez=${"%.2f".format(solidez)} area=${area.toInt()} pos=(${rect.x + rect.width / 2},${rect.y + rect.height / 2})" }
+                contour.release(); continue
+            }
+
+            out += Candidato(metodo, contour, area, solidez, rect)
+            aceptados++
+        }
+        dlog { "[$metodo] ${contours.size} contornos -> $aceptados candidatos, $fragmentos fragmentos" }
+        return fragmentos
+    }
+
+    /**
+     * Se queda con un candidato por ficha: primero los más sólidos, descartando los que se
+     * encimen con uno ya elegido. Luego quita "contenedores" (una hoja o bandeja que rodea
+     * varias fichas) y piezas sueltas que caen dentro de una ficha más grande. Por último
+     * quita las piezas pequeñas que solo vio un método (detalles de objetos del entorno,
+     * como una tecla de laptop): una ficha real la suelen encontrar varios métodos.
+     */
+    private fun selectBest(candidatos: List<Candidato>): List<Candidato> {
+        val elegidos = ArrayList<Candidato>()
+        for (c in candidatos.sortedWith(compareByDescending<Candidato> { it.solidez }.thenByDescending { it.area })) {
+            val igual = elegidos.firstOrNull { iou(it.rect, c.rect) > DUPLICATE_IOU }
+            if (igual == null) elegidos += c else if (igual.metodo != c.metodo) igual.votos++
+        }
+        val sinContenedores = elegidos.filter { c ->
+            val dentro = elegidos.count { o -> o !== c && contiene(c.rect, o.rect) }
+            if (dentro >= 2) dlog { "[${c.metodo}] descartado: contiene $dentro fichas (hoja/base)" }
+            dentro < 2
+        }
+        val sinAnidados = sinContenedores.filter { c ->
+            sinContenedores.none { o -> o !== c && o.area > c.area && contiene(o.rect, c.rect) }
+        }
+        val areaMediana = sinAnidados.map { it.area }.sorted().getOrNull(sinAnidados.size / 2) ?: 0.0
+        return sinAnidados.filter { c ->
+            val suelta = c.votos == 1 && c.area < areaMediana * LONE_SMALL_AREA_FRACTION
+            if (suelta) dlog { "[${c.metodo}] descartado: pequeña (area=${c.area.toInt()}, mediana=${areaMediana.toInt()}) y la vio un solo método" }
+            !suelta
+        }
+    }
+
+    private fun contiene(outer: Rect, inner: Rect): Boolean {
+        val cx = inner.x + inner.width / 2
+        val cy = inner.y + inner.height / 2
+        return cx > outer.x && cx < outer.x + outer.width && cy > outer.y && cy < outer.y + outer.height
+    }
+
+    private fun iou(a: Rect, b: Rect): Double {
+        val ix = maxOf(0, minOf(a.x + a.width, b.x + b.width) - maxOf(a.x, b.x))
+        val iy = maxOf(0, minOf(a.y + a.height, b.y + b.height) - maxOf(a.y, b.y))
+        val inter = ix.toDouble() * iy
+        val union = a.area() + b.area() - inter
+        return if (union > 0) inter / union else 0.0
     }
 
     private fun classifyShape(
@@ -477,12 +708,25 @@ object ShapeDetector {
     private fun meanColorName(hsv: Mat, contour: MatOfPoint): String {
         val mask = Mat.zeros(hsv.size(), CvType.CV_8UC1)
         val single = listOf(contour)
+        val hue = Mat()
+        val hist = Mat()
         return try {
             Imgproc.drawContours(mask, single, -1, Scalar(255.0), -1)
             val mean = Core.mean(hsv, mask)
-            classifyColor(mean.`val`[0], mean.`val`[1], mean.`val`[2])
+            // El tono es circular (el rojo está en ~0 y en ~179 a la vez): promediarlo da un
+            // valor intermedio -verde/cian- para una ficha roja. Se usa el tono más frecuente.
+            Core.extractChannel(hsv, hue, 0)
+            Imgproc.calcHist(listOf(hue), MatOfInt(0), mask, hist, MatOfInt(180), MatOfFloat(0f, 180f))
+            // El histograma puede venir como columna (180x1) o como fila (1x180) según la versión.
+            val maxLoc = Core.minMaxLoc(hist).maxLoc
+            val dominantHue = if (hist.rows() == 1) maxLoc.x else maxLoc.y
+            val name = classifyColor(dominantHue, mean.`val`[1], mean.`val`[2])
+            dlog { "color: hist ${hist.rows()}x${hist.cols()} tono dominante=${dominantHue.toInt()} (promedio=${mean.`val`[0].toInt()}) S=${mean.`val`[1].toInt()} V=${mean.`val`[2].toInt()} -> $name" }
+            name
         } finally {
             mask.release()
+            hue.release()
+            hist.release()
         }
     }
 

@@ -32,6 +32,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
@@ -40,6 +42,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -57,6 +60,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import com.dan.opencv.retos.RETOS
+import com.dan.opencv.retos.Reto
 import com.dan.opencv.ui.theme.Brote
 import com.dan.opencv.ui.theme.Fondo
 import com.dan.opencv.ui.theme.IbmPlexMono
@@ -67,6 +72,7 @@ import com.dan.opencv.ui.theme.VerdeMedio
 import com.dan.opencv.vision.FrameResult
 import com.dan.opencv.vision.PhotoAnalyzer
 import com.dan.opencv.vision.PositionedShape
+import kotlinx.coroutines.delay
 import java.util.concurrent.Executors
 
 private val EstadoBarraOscuro = Color(0xFF1A2A20)
@@ -89,11 +95,13 @@ private sealed class ScanState {
  * previa en vivo, presiona el obturador, se toma UNA foto (`ImageCapture`), esa foto se
  * decodifica y se procesa una sola vez (`PhotoAnalyzer`/`ShapeDetector`), y el resultado
  * queda fijo en la hoja de abajo. "Otra vez" limpia el resultado para volver a disparar.
- * "Ejecutar" queda sin lógica de negocio real -no existe todavía un motor que ejecute el
- * algoritmo armado-, igual que "Retos"/"Grupo" en pantallas anteriores.
+ * "Ejecutar" simula la ejecución: si se llegó desde un reto ([retoIndex]), reproduce paso a
+ * paso la solución hardcodeada de ese reto ([Reto.solucion]) -todavía no existe un motor que
+ * ejecute el algoritmo realmente detectado en la foto-.
  */
 @Composable
-fun ScanScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
+fun ScanScreen(retoIndex: Int?, onBack: () -> Unit, modifier: Modifier = Modifier) {
+    val reto = retoIndex?.let { RETOS.getOrNull(it) }
     val context = LocalContext.current
 
     var hasCameraPermission by remember {
@@ -117,7 +125,7 @@ fun ScanScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
                 .background(EstadoBarraOscuro)
         )
         if (hasCameraPermission) {
-            ScannerContent(onBack = onBack, modifier = Modifier.fillMaxWidth().weight(1f))
+            ScannerContent(reto = reto, onBack = onBack, modifier = Modifier.fillMaxWidth().weight(1f))
         } else {
             Box(Modifier.fillMaxWidth().weight(1f).background(Fondo), contentAlignment = Alignment.Center) {
                 Text(
@@ -132,7 +140,7 @@ fun ScanScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun ScannerContent(onBack: () -> Unit, modifier: Modifier = Modifier) {
+private fun ScannerContent(reto: Reto?, onBack: () -> Unit, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val captureExecutor = remember { Executors.newSingleThreadExecutor() }
@@ -142,6 +150,7 @@ private fun ScannerContent(onBack: () -> Unit, modifier: Modifier = Modifier) {
     var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
     var torchOn by remember { mutableStateOf(false) }
     var detalleTecnico by remember { mutableStateOf(false) }
+    var ejecutando by remember { mutableStateOf(false) }
 
     Column(modifier = modifier) {
         Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
@@ -182,6 +191,7 @@ private fun ScannerContent(onBack: () -> Unit, modifier: Modifier = Modifier) {
                 onShutter = {
                     val capture = imageCapture ?: return@ScannerOverlay
                     scanState = ScanState.Procesando
+                    ejecutando = false
                     capturarYAnalizar(capture, captureExecutor) { result ->
                         scanState = result
                     }
@@ -191,9 +201,12 @@ private fun ScannerContent(onBack: () -> Unit, modifier: Modifier = Modifier) {
 
         ResultSheet(
             scanState = scanState,
+            reto = reto,
+            ejecutando = ejecutando,
             detalleTecnico = detalleTecnico,
             onToggleDetalle = { detalleTecnico = !detalleTecnico },
-            onOtraVez = { scanState = ScanState.Vacio }
+            onOtraVez = { scanState = ScanState.Vacio; ejecutando = false },
+            onEjecutar = { if (scanState is ScanState.Listo) ejecutando = true }
         )
     }
 }
@@ -350,9 +363,12 @@ private fun CornerBracket(top: Boolean, start: Boolean, modifier: Modifier = Mod
 @Composable
 private fun ResultSheet(
     scanState: ScanState,
+    reto: Reto?,
+    ejecutando: Boolean,
     detalleTecnico: Boolean,
     onToggleDetalle: () -> Unit,
     onOtraVez: () -> Unit,
+    onEjecutar: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val positioned = (scanState as? ScanState.Listo)?.resultado?.positioned.orEmpty()
@@ -375,6 +391,7 @@ private fun ResultSheet(
         ) {
             Text(
                 when (scanState) {
+                    is ScanState.Listo if ejecutando -> if (reto != null) "Ejecutando" else "Sin reto elegido"
                     is ScanState.Listo -> "${positioned.size} ${if (positioned.size == 1) "ficha detectada" else "fichas detectadas"}"
                     ScanState.Procesando -> "Analizando foto…"
                     is ScanState.ErrorCaptura -> "No se pudo escanear"
@@ -392,8 +409,20 @@ private fun ResultSheet(
             }
         }
 
-        Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Column(
+            modifier = Modifier.fillMaxWidth().heightIn(max = 340.dp).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
             when (scanState) {
+                is ScanState.Listo if ejecutando -> if (reto != null) {
+                    EjecucionSimulada(reto)
+                } else {
+                    Text(
+                        "Entra a un reto desde la pestaña Retos y escanea tu solución para poder ejecutarla.",
+                        color = VerdeFuerte.copy(alpha = 0.7f),
+                        fontSize = 14.sp
+                    )
+                }
                 ScanState.Vacio -> Text(
                     "Encuadra tus fichas y toca el obturador para tomar la foto.",
                     color = VerdeFuerte.copy(alpha = 0.7f),
@@ -411,17 +440,29 @@ private fun ResultSheet(
                 )
                 is ScanState.Listo -> if (positioned.isEmpty()) {
                     Text(
-                        "No se detectó ninguna ficha en la foto. Intenta de nuevo con mejor luz o encuadre.",
+                        "No se detectó ninguna ficha en la foto. Prueba con mejor luz, sobre una superficie lisa de otro color que las fichas.",
                         color = VerdeFuerte.copy(alpha = 0.7f),
                         fontSize = 14.sp
                     )
                 } else {
+                    scanState.resultado.aviso?.let { aviso ->
+                        Text(
+                            aviso,
+                            color = VerdeFuerte,
+                            fontSize = 13.sp,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Brote)
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                        )
+                    }
                     positioned.forEachIndexed { i, p -> DetectedRow(index = i + 1, positioned = p, detalleTecnico = detalleTecnico) }
                 }
             }
         }
 
-        if (scanState is ScanState.Listo && positioned.isNotEmpty()) {
+        if (scanState is ScanState.Listo && positioned.isNotEmpty() && !ejecutando) {
             Text(
                 if (detalleTecnico) "Ocultar detalle técnico" else "Ver detalle técnico",
                 color = VerdeMedio,
@@ -445,7 +486,7 @@ private fun ResultSheet(
             }
             PhysicalButton(
                 text = "Ejecutar",
-                onClick = { /* pendiente: aún no existe un motor que ejecute el algoritmo armado */ },
+                onClick = onEjecutar,
                 modifier = Modifier.weight(1.6f),
                 minHeight = 52.dp
             ) {
@@ -488,3 +529,64 @@ private fun DetectedRow(index: Int, positioned: PositionedShape, detalleTecnico:
         }
     }
 }
+
+/**
+ * Reproduce la solución hardcodeada del reto como si se ejecutara el diagrama escaneado: los
+ * pasos aparecen uno a uno y al final se muestra la salida esperada.
+ */
+@Composable
+private fun EjecucionSimulada(reto: Reto) {
+    var visibles by remember(reto) { mutableIntStateOf(0) }
+    LaunchedEffect(reto) {
+        while (visibles < reto.solucion.size) {
+            delay(PASO_MS)
+            visibles++
+        }
+    }
+
+    Text(
+        "${reto.titulo} · entra: ${reto.entra}",
+        fontFamily = IbmPlexMono,
+        fontSize = 12.sp,
+        color = VerdeFuerte.copy(alpha = 0.72f)
+    )
+    reto.solucion.take(visibles).forEachIndexed { i, paso ->
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .background(TarjetaFondo)
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Box(
+                modifier = Modifier.size(24.dp).clip(CircleShape).background(VerdeMedio),
+                contentAlignment = Alignment.Center
+            ) {
+                Text((i + 1).toString(), color = Fondo, fontWeight = FontWeight.ExtraBold, fontSize = 12.sp)
+            }
+            FichaShapeIcon(paso.tipo)
+            Column(modifier = Modifier.weight(1f)) {
+                Text(paso.texto, fontWeight = FontWeight.ExtraBold, fontSize = 15.sp, color = VerdeFuerte)
+                Text(paso.traza, fontFamily = IbmPlexMono, fontSize = 12.sp, color = VerdeFuerte.copy(alpha = 0.72f))
+            }
+        }
+    }
+    if (visibles == reto.solucion.size) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 4.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(Brote)
+                .padding(horizontal = 12.dp, vertical = 10.dp)
+        ) {
+            Text("Salida", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = VerdeFuerte.copy(alpha = 0.72f))
+            Text(reto.sale, fontFamily = Literata, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, color = VerdeFuerte)
+            Text("¡Reto resuelto!", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = VerdeMedio)
+        }
+    }
+}
+
+private const val PASO_MS = 600L

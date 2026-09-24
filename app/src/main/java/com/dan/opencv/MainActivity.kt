@@ -22,7 +22,8 @@ import com.dan.opencv.ui.theme.OpencvTheme
 /** Las pantallas de la app y cómo se navega entre ellas (sin Navigation Compose: solo 4 destinos). */
 private sealed class AppScreen : java.io.Serializable {
     data object Home : AppScreen()
-    data object Scan : AppScreen()
+    /** [retoIndex] es el reto cuya solución se escanea, o null si se entró desde Inicio. */
+    data class Scan(val retoIndex: Int? = null) : AppScreen()
     data object Retos : AppScreen()
     data class RetoDetail(val retoIndex: Int) : AppScreen()
 }
@@ -46,12 +47,13 @@ class MainActivity : ComponentActivity() {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     when (val s = screen) {
                         AppScreen.Home -> HomeScreen(
-                            onScanClick = { screen = AppScreen.Scan },
+                            onScanClick = { screen = AppScreen.Scan() },
                             onNavigate = ::onNavTab,
                             modifier = Modifier.padding(innerPadding)
                         )
-                        AppScreen.Scan -> ScanScreen(
-                            onBack = { screen = AppScreen.Home },
+                        is AppScreen.Scan -> ScanScreen(
+                            retoIndex = s.retoIndex,
+                            onBack = { screen = s.retoIndex?.let { AppScreen.RetoDetail(it) } ?: AppScreen.Home },
                             modifier = Modifier.padding(innerPadding)
                         )
                         AppScreen.Retos -> RetosScreen(
@@ -62,7 +64,7 @@ class MainActivity : ComponentActivity() {
                         is AppScreen.RetoDetail -> RetoDetailScreen(
                             retoIndex = s.retoIndex,
                             onBack = { screen = AppScreen.Retos },
-                            onScanSolution = { screen = AppScreen.Scan },
+                            onScanSolution = { screen = AppScreen.Scan(s.retoIndex) },
                             modifier = Modifier.padding(innerPadding)
                         )
                     }
