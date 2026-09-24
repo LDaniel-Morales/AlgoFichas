@@ -6,19 +6,39 @@ import org.opencv.core.Mat
 
 /**
  * Analiza una foto ya capturada, una sola vez (no hay detección continua de video en vivo).
- * `Utils.bitmapToMat` entrega un Mat en RGBA de 4 canales, el mismo formato que espera
- * [ShapeDetector.detect].
+ *
+ * `ImageCapture` entrega la foto a resolución de sensor completa (varios megapíxeles), muy
+ * por encima de la resolución de los frames de análisis que se usaban antes con
+ * `ImageAnalysis`. Los parámetros de [ShapeDetector] (kernel de blur, umbrales de Canny, área
+ * mínima) están en píxeles/proporciones pensados para esa resolución más baja, así que la
+ * foto se reduce primero a una resolución de trabajo consistente -esto también hace el
+ * análisis bastante más rápido que procesar la foto a resolución completa-.
  */
 object PhotoAnalyzer {
+
+    /** Dimensión máxima (en px) del lado más largo antes de analizar. */
+    private const val MAX_WORKING_DIMENSION = 1280
+
     fun analyze(bitmap: Bitmap): FrameResult {
+        val working = downscale(bitmap, MAX_WORKING_DIMENSION)
         val rgba = Mat()
-        Utils.bitmapToMat(bitmap, rgba)
+        Utils.bitmapToMat(working, rgba)
         return try {
             val shapes = ShapeDetector.detect(rgba)
             val positioned = FlowPositionAnalyzer.analyze(shapes)
-            FrameResult(positioned, bitmap.width, bitmap.height)
+            FrameResult(positioned, working.width, working.height)
         } finally {
             rgba.release()
+            if (working !== bitmap) working.recycle()
         }
+    }
+
+    private fun downscale(bitmap: Bitmap, maxDimension: Int): Bitmap {
+        val largestSide = maxOf(bitmap.width, bitmap.height)
+        if (largestSide <= maxDimension) return bitmap
+        val scale = maxDimension.toFloat() / largestSide
+        val newWidth = (bitmap.width * scale).toInt().coerceAtLeast(1)
+        val newHeight = (bitmap.height * scale).toInt().coerceAtLeast(1)
+        return Bitmap.createScaledBitmap(bitmap, newWidth, newHeight, true)
     }
 }
