@@ -1,12 +1,11 @@
 package com.dan.opencv.ui
 
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.text.InlineTextContent
+import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,7 +16,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -26,7 +24,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -43,12 +40,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.Placeholder
+import androidx.compose.ui.text.PlaceholderVerticalAlign
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.dan.opencv.R
-import com.dan.opencv.ui.theme.Brote
 import com.dan.opencv.ui.theme.Caveat
 import com.dan.opencv.ui.theme.Carton
 import com.dan.opencv.ui.theme.Fondo
@@ -69,7 +68,7 @@ import com.dan.opencv.ui.theme.VerdeMedioPresionado
  *    acción todavía: el diseño de origen solo cubre esta pantalla de Inicio.
  */
 @Composable
-fun HomeScreen(onScanClick: () -> Unit, modifier: Modifier = Modifier) {
+fun HomeScreen(onScanClick: () -> Unit, onNavigate: (NavTab) -> Unit, modifier: Modifier = Modifier) {
     var modo by rememberSaveable { mutableStateOf(UserMode.DOCENTE) }
 
     Column(modifier = modifier.fillMaxSize().background(Fondo)) {
@@ -80,7 +79,7 @@ fun HomeScreen(onScanClick: () -> Unit, modifier: Modifier = Modifier) {
                 .windowInsetsPadding(WindowInsets.statusBars)
                 .padding(horizontal = 22.dp)
         ) {
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(4.dp))
             HomeHeader()
             Spacer(Modifier.height(18.dp))
             ModeToggle(
@@ -96,7 +95,7 @@ fun HomeScreen(onScanClick: () -> Unit, modifier: Modifier = Modifier) {
             ScanButton(onClick = onScanClick, modifier = Modifier.fillMaxWidth())
             Spacer(Modifier.height(14.dp))
         }
-        BottomNavBar()
+        AppBottomNavBar(active = NavTab.INICIO, onSelect = onNavigate)
     }
 }
 
@@ -118,51 +117,59 @@ private fun HomeHeader(modifier: Modifier = Modifier) {
             )
             AlgoFichasWordmark(fontSize = 24.sp)
         }
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            OfflineBadge()
-            MenuButton(onClick = { /* pendiente: menú lateral, no está en este diseño */ })
-        }
+        MenuButton(onClick = { /* pendiente: menú lateral, no está en este diseño */ })
     }
 }
 
-/** El logo "AlgoFichas": la "o" de "Algo" es un círculo con 3 fichas diminutas (proceso-decisión-proceso). */
+/**
+ * El logo "AlgoFichas": la "o" de "Algo" es un círculo con 3 fichas diminutas
+ * (proceso-decisión-proceso). Se inserta como contenido en línea del propio [Text] (en vez
+ * de armar "Alg" + círculo + "Fichas" en un Row aparte) para que quede alineado a la línea
+ * base real del texto -un Row con Alignment.Bottom alinea por el borde inferior de la caja
+ * de cada elemento, que en Literata incluye espacio de descendentes y queda visiblemente
+ * más abajo que la línea base-.
+ */
 @Composable
 fun AlgoFichasWordmark(fontSize: TextUnit, color: Color = VerdeMedio, modifier: Modifier = Modifier) {
-    val circleSize = (fontSize.value * 0.56f).dp
-    Row(modifier = modifier, verticalAlignment = Alignment.Bottom) {
-        Text("Alg", fontFamily = Literata, fontWeight = FontWeight.ExtraBold, fontSize = fontSize, color = color)
-        Box(
-            modifier = Modifier
-                .padding(horizontal = 1.dp)
-                .offset(y = -(circleSize * 0.18f))
-                .size(circleSize)
-                .clip(CircleShape)
-                .background(color),
-            contentAlignment = Alignment.Center
+    val circleSize = (fontSize.value * 0.68f).dp
+    val dotId = "algoDot"
+
+    val text = buildAnnotatedString {
+        append("Alg")
+        appendInlineContent(dotId, "o")
+        append("Fichas")
+    }
+
+    val inlineContent = mapOf(
+        dotId to InlineTextContent(
+            placeholder = Placeholder(
+                width = fontSize * 0.68f,
+                height = fontSize * 0.68f,
+                placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter
+            )
         ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(circleSize * 0.05f), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(width = circleSize * 0.22f, height = circleSize * 0.15f).clip(RoundedCornerShape(1.dp)).background(Fondo))
-                Box(Modifier.size(circleSize * 0.17f).graphicsLayer(rotationZ = 45f).background(Fondo))
-                Box(Modifier.size(width = circleSize * 0.22f, height = circleSize * 0.15f).clip(RoundedCornerShape(1.dp)).background(Fondo))
+            Box(
+                modifier = Modifier.fillMaxSize().clip(CircleShape).background(color),
+                contentAlignment = Alignment.Center
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(circleSize * 0.05f), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(width = circleSize * 0.22f, height = circleSize * 0.15f).clip(RoundedCornerShape(1.dp)).background(Fondo))
+                    Box(Modifier.size(circleSize * 0.17f).graphicsLayer(rotationZ = 45f).background(Fondo))
+                    Box(Modifier.size(width = circleSize * 0.22f, height = circleSize * 0.15f).clip(RoundedCornerShape(1.dp)).background(Fondo))
+                }
             }
         }
-        Text("Fichas", fontFamily = Literata, fontWeight = FontWeight.ExtraBold, fontSize = fontSize, color = color)
-    }
-}
+    )
 
-@Composable
-private fun OfflineBadge(modifier: Modifier = Modifier) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(5.dp),
+    Text(
+        text = text,
+        inlineContent = inlineContent,
+        fontFamily = Literata,
+        fontWeight = FontWeight.ExtraBold,
+        fontSize = fontSize,
+        color = color,
         modifier = modifier
-            .clip(RoundedCornerShape(50))
-            .background(Brote)
-            .padding(horizontal = 8.dp, vertical = 5.dp)
-    ) {
-        Box(Modifier.size(6.dp).clip(CircleShape).background(VerdeMedio))
-        Text("SIN RED", style = MaterialTheme.typography.labelSmall, color = VerdeFuerte)
-    }
+    )
 }
 
 @Composable
@@ -285,83 +292,8 @@ private fun FichaCard(text: String, background: Color, rotation: Float, modifier
     }
 }
 
-/** Botón principal, con el efecto "botón físico" del diseño: se aplana al presionar. */
 @Composable
 private fun ScanButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val pressed by interactionSource.collectIsPressedAsState()
-    val translateY by animateDpAsState(if (pressed) 3.dp else 0.dp, label = "scanButtonTranslate")
-    val borderHeight by animateDpAsState(if (pressed) 2.dp else 5.dp, label = "scanButtonBorder")
-    val shape = RoundedCornerShape(36.dp)
-
-    Box(
-        modifier = modifier
-            .offset(y = translateY)
-            .heightIn(min = 72.dp)
-            .clip(shape)
-            .background(VerdeMedioPresionado)
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = borderHeight)
-                .clip(shape)
-                .background(VerdeFuerte)
-                .clickable(interactionSource = interactionSource, indication = null, onClick = onClick),
-            contentAlignment = Alignment.Center
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier.size(26.dp).border(3.dp, Fondo, RoundedCornerShape(7.dp)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Box(Modifier.size(8.dp).clip(CircleShape).background(Fondo))
-                }
-                Spacer(Modifier.width(14.dp))
-                Text("Escanear fichas", style = MaterialTheme.typography.labelLarge, color = Fondo)
-            }
-        }
-    }
+    PhysicalButton(text = "Escanear fichas", onClick = onClick, modifier = modifier) { CameraIcon() }
 }
 
-@Composable
-private fun BottomNavBar(modifier: Modifier = Modifier) {
-    Column(modifier = modifier.fillMaxWidth().background(TarjetaFondo)) {
-        HorizontalDivider(color = VerdeFuerte.copy(alpha = 0.14f), thickness = 2.dp)
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .windowInsetsPadding(WindowInsets.navigationBars)
-                .padding(top = 12.dp, bottom = 10.dp),
-            horizontalArrangement = Arrangement.SpaceAround
-        ) {
-            NavTabItem(label = "Inicio", selected = true) {
-                Box(Modifier.size(20.dp).clip(RoundedCornerShape(5.dp)).background(VerdeMedio))
-            }
-            NavTabItem(label = "Retos", selected = false) {
-                Box(Modifier.size(20.dp).border(3.dp, VerdeFuerte.copy(alpha = 0.45f), CircleShape))
-            }
-            NavTabItem(label = "Grupo", selected = false) {
-                Box(
-                    Modifier
-                        .size(15.dp)
-                        .graphicsLayer(rotationZ = 45f)
-                        .border(3.dp, VerdeFuerte.copy(alpha = 0.45f))
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun NavTabItem(label: String, selected: Boolean, icon: @Composable () -> Unit) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        icon()
-        Text(
-            label,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.SemiBold,
-            color = if (selected) VerdeFuerte else VerdeFuerte.copy(alpha = 0.7f)
-        )
-    }
-}
