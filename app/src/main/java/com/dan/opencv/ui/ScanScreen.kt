@@ -2,11 +2,16 @@ package com.dan.opencv.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Matrix
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
-import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.ImageCapture
+import androidx.camera.core.ImageCaptureException
+import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
@@ -29,6 +34,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -58,24 +64,33 @@ import com.dan.opencv.ui.theme.Literata
 import com.dan.opencv.ui.theme.TarjetaFondo
 import com.dan.opencv.ui.theme.VerdeFuerte
 import com.dan.opencv.ui.theme.VerdeMedio
-import com.dan.opencv.vision.FrameAnalyzer
 import com.dan.opencv.vision.FrameResult
+import com.dan.opencv.vision.PhotoAnalyzer
 import com.dan.opencv.vision.PositionedShape
 import java.util.concurrent.Executors
 
 private val EstadoBarraOscuro = Color(0xFF1A2A20)
 
+/** Estado del escaneo: ya no hay detección continua, es una foto que se toma y se procesa una vez. */
+private sealed class ScanState {
+    object Vacio : ScanState()
+    object Procesando : ScanState()
+    data class Listo(val resultado: FrameResult) : ScanState()
+    data class ErrorCaptura(val mensaje: String) : ScanState()
+}
+
 /**
  * Pantalla de escaneo, basada en "01 Escanear" del diseño "AlgoFichas Vistas". Adaptación
- * deliberada: el mockup dibuja una mesa de madera y 4 fichas de cartón ilustradas (con
- * insignias 1-4 fijas en píxeles) porque la herramienta de diseño no puede mostrar una
- * cámara real -aquí esa ilustración se reemplaza por la vista previa real de la cámara y el
- * pipeline de detección ya existente (FrameAnalyzer/ShapeDetector); las insignias numeradas
- * quedan en la lista de la hoja de resultados en vez de superpuestas sobre la imagen, porque
- * ubicarlas sobre el punto exacto de cada ficha requeriría mapear coordenadas de píxel de
- * análisis a coordenadas de pantalla (pendiente, no es parte de este diseño).
- * "Otra vez" y "Ejecutar" quedan sin lógica de negocio real -no existe todavía un motor que
- * valide o ejecute el algoritmo armado-, igual que "Retos"/"Grupo" en pantallas anteriores.
+ * deliberada: el mockup dibuja una mesa de madera y 4 fichas de cartón ilustradas porque la
+ * herramienta de diseño no puede mostrar una cámara real -aquí esa ilustración se reemplaza
+ * por la vista previa real de la cámara-.
+ *
+ * Funcionamiento (captura única, no detección continua): el usuario encuadra con la vista
+ * previa en vivo, presiona el obturador, se toma UNA foto (`ImageCapture`), esa foto se
+ * decodifica y se procesa una sola vez (`PhotoAnalyzer`/`ShapeDetector`), y el resultado
+ * queda fijo en la hoja de abajo. "Otra vez" limpia el resultado para volver a disparar.
+ * "Ejecutar" queda sin lógica de negocio real -no existe todavía un motor que ejecute el
+ * algoritmo armado-, igual que "Retos"/"Grupo" en pantallas anteriores.
  */
 @Composable
 fun ScanScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
@@ -120,10 +135,11 @@ fun ScanScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
 private fun ScannerContent(onBack: () -> Unit, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    val analysisExecutor = remember { Executors.newSingleThreadExecutor() }
+    val captureExecutor = remember { Executors.newSingleThreadExecutor() }
 
-    var frameResult by remember { mutableStateOf<FrameResult?>(null) }
+    var scanState by remember { mutableStateOf<ScanState>(ScanState.Vacio) }
     var camera by remember { mutableStateOf<Camera?>(null) }
+    var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
     var torchOn by remember { mutableStateOf(false) }
     var detalleTecnico by remember { mutableStateOf(false) }
 
@@ -139,18 +155,14 @@ private fun ScannerContent(onBack: () -> Unit, modifier: Modifier = Modifier) {
                         val preview = Preview.Builder().build().also {
                             it.surfaceProvider = previewView.surfaceProvider
                         }
-                        val imageAnalysis = ImageAnalysis.Builder()
-                            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                        val capture = ImageCapture.Builder()
+                            .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
                             .build()
-                            .also { analysis ->
-                                analysis.setAnalyzer(analysisExecutor, FrameAnalyzer { result ->
-                                    frameResult = result
-                                })
-                            }
                         cameraProvider.unbindAll()
                         camera = cameraProvider.bindToLifecycle(
-                            lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageAnalysis
+                            lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, capture
                         )
+                        imageCapture = capture
                     }, ContextCompat.getMainExecutor(ctx))
                     previewView
                 }
@@ -165,17 +177,65 @@ private fun ScannerContent(onBack: () -> Unit, modifier: Modifier = Modifier) {
                         torchOn = !torchOn
                         cam.cameraControl.enableTorch(torchOn)
                     }
+                },
+                mostrarObturador = scanState !is ScanState.Procesando,
+                onShutter = {
+                    val capture = imageCapture ?: return@ScannerOverlay
+                    scanState = ScanState.Procesando
+                    capturarYAnalizar(capture, captureExecutor) { result ->
+                        scanState = result
+                    }
                 }
             )
         }
 
         ResultSheet(
-            frameResult = frameResult,
+            scanState = scanState,
             detalleTecnico = detalleTecnico,
             onToggleDetalle = { detalleTecnico = !detalleTecnico },
-            onOtraVez = { frameResult = null }
+            onOtraVez = { scanState = ScanState.Vacio }
         )
     }
+}
+
+/** Toma una foto y la procesa una sola vez; entrega el resultado por [onDone] (hilo de fondo). */
+private fun capturarYAnalizar(
+    imageCapture: ImageCapture,
+    executor: java.util.concurrent.Executor,
+    onDone: (ScanState) -> Unit
+) {
+    imageCapture.takePicture(executor, object : ImageCapture.OnImageCapturedCallback() {
+        override fun onCaptureSuccess(image: ImageProxy) {
+            try {
+                val buffer = image.planes[0].buffer
+                val bytes = ByteArray(buffer.remaining())
+                buffer.get(bytes)
+                var bitmap: Bitmap? = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                val rotation = image.imageInfo.rotationDegrees
+                val decoded = bitmap
+                if (decoded != null && rotation != 0) {
+                    val matrix = Matrix().apply { postRotate(rotation.toFloat()) }
+                    bitmap = Bitmap.createBitmap(decoded, 0, 0, decoded.width, decoded.height, matrix, true)
+                }
+                val finalBitmap = bitmap
+                onDone(
+                    if (finalBitmap != null) {
+                        ScanState.Listo(PhotoAnalyzer.analyze(finalBitmap))
+                    } else {
+                        ScanState.ErrorCaptura("No se pudo leer la foto tomada.")
+                    }
+                )
+            } catch (t: Throwable) {
+                onDone(ScanState.ErrorCaptura(t.message ?: "No se pudo procesar la foto."))
+            } finally {
+                image.close()
+            }
+        }
+
+        override fun onError(exception: ImageCaptureException) {
+            onDone(ScanState.ErrorCaptura(exception.message ?: "No se pudo tomar la foto."))
+        }
+    })
 }
 
 @Composable
@@ -183,6 +243,8 @@ private fun ScannerOverlay(
     onBack: () -> Unit,
     torchOn: Boolean,
     onToggleTorch: () -> Unit,
+    mostrarObturador: Boolean,
+    onShutter: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Box(modifier = modifier.fillMaxSize()) {
@@ -221,12 +283,39 @@ private fun ScannerOverlay(
             Box(
                 modifier = Modifier.clip(RoundedCornerShape(50)).background(Brote).padding(horizontal = 14.dp, vertical = 9.dp)
             ) {
-                Text("Mantén el celular quieto", color = VerdeFuerte, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
+                Text("Encuadra tus fichas", color = VerdeFuerte, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
             }
             RoundIconButton(onClick = onToggleTorch, highlighted = torchOn) {
                 Text(if (torchOn) "⚡" else "⚡︎", color = Fondo, fontSize = 16.sp)
             }
         }
+
+        if (mostrarObturador) {
+            ShutterButton(onClick = onShutter, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 22.dp))
+        } else {
+            Box(
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 22.dp).size(72.dp).clip(CircleShape).background(EstadoBarraOscuro.copy(alpha = 0.75f)),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(color = Fondo, strokeWidth = 3.dp, modifier = Modifier.size(28.dp))
+            }
+        }
+    }
+}
+
+/** El obturador: un círculo blanco con un anillo, como en cualquier app de cámara. */
+@Composable
+private fun ShutterButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .size(72.dp)
+            .clip(CircleShape)
+            .background(Fondo.copy(alpha = 0.25f))
+            .border(3.dp, Fondo, CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Box(Modifier.size(56.dp).clip(CircleShape).background(Fondo))
     }
 }
 
@@ -260,13 +349,14 @@ private fun CornerBracket(top: Boolean, start: Boolean, modifier: Modifier = Mod
 
 @Composable
 private fun ResultSheet(
-    frameResult: FrameResult?,
+    scanState: ScanState,
     detalleTecnico: Boolean,
     onToggleDetalle: () -> Unit,
     onOtraVez: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val positioned = frameResult?.positioned.orEmpty().sortedWith(compareBy({ it.row }, { it.column }))
+    val positioned = (scanState as? ScanState.Listo)?.resultado?.positioned.orEmpty()
+        .sortedWith(compareBy({ it.row }, { it.column }))
 
     Column(
         modifier = modifier
@@ -284,36 +374,62 @@ private fun ResultSheet(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                "${positioned.size} ${if (positioned.size == 1) "ficha detectada" else "fichas detectadas"}",
+                when (scanState) {
+                    is ScanState.Listo -> "${positioned.size} ${if (positioned.size == 1) "ficha detectada" else "fichas detectadas"}"
+                    ScanState.Procesando -> "Analizando foto…"
+                    is ScanState.ErrorCaptura -> "No se pudo escanear"
+                    ScanState.Vacio -> "Lista para escanear"
+                },
                 fontFamily = Literata,
                 fontWeight = FontWeight.ExtraBold,
                 fontSize = 19.sp,
                 color = VerdeFuerte
             )
-            Box(Modifier.clip(RoundedCornerShape(50)).background(Brote).padding(horizontal = 10.dp, vertical = 6.dp)) {
-                Text("En vivo", color = VerdeFuerte, fontWeight = FontWeight.ExtraBold, fontSize = 12.sp)
+            if (scanState is ScanState.Listo) {
+                Box(Modifier.clip(RoundedCornerShape(50)).background(Brote).padding(horizontal = 10.dp, vertical = 6.dp)) {
+                    Text("Analizado", color = VerdeFuerte, fontWeight = FontWeight.ExtraBold, fontSize = 12.sp)
+                }
             }
         }
 
         Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            if (positioned.isEmpty()) {
-                Text(
-                    "Apunta la cámara a tus fichas para empezar a detectarlas.",
+            when (scanState) {
+                ScanState.Vacio -> Text(
+                    "Encuadra tus fichas y toca el obturador para tomar la foto.",
                     color = VerdeFuerte.copy(alpha = 0.7f),
                     fontSize = 14.sp
                 )
-            } else {
-                positioned.forEachIndexed { i, p -> DetectedRow(index = i + 1, positioned = p, detalleTecnico = detalleTecnico) }
+                ScanState.Procesando -> Text(
+                    "Un momento, estamos calculando las formas de la foto…",
+                    color = VerdeFuerte.copy(alpha = 0.7f),
+                    fontSize = 14.sp
+                )
+                is ScanState.ErrorCaptura -> Text(
+                    scanState.mensaje,
+                    color = VerdeFuerte.copy(alpha = 0.8f),
+                    fontSize = 14.sp
+                )
+                is ScanState.Listo -> if (positioned.isEmpty()) {
+                    Text(
+                        "No se detectó ninguna ficha en la foto. Intenta de nuevo con mejor luz o encuadre.",
+                        color = VerdeFuerte.copy(alpha = 0.7f),
+                        fontSize = 14.sp
+                    )
+                } else {
+                    positioned.forEachIndexed { i, p -> DetectedRow(index = i + 1, positioned = p, detalleTecnico = detalleTecnico) }
+                }
             }
         }
 
-        Text(
-            if (detalleTecnico) "Ocultar detalle técnico" else "Ver detalle técnico",
-            color = VerdeMedio,
-            fontWeight = FontWeight.Bold,
-            fontSize = 14.sp,
-            modifier = Modifier.clickable(onClick = onToggleDetalle).padding(vertical = 2.dp)
-        )
+        if (scanState is ScanState.Listo && positioned.isNotEmpty()) {
+            Text(
+                if (detalleTecnico) "Ocultar detalle técnico" else "Ver detalle técnico",
+                color = VerdeMedio,
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp,
+                modifier = Modifier.clickable(onClick = onToggleDetalle).padding(vertical = 2.dp)
+            )
+        }
 
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Box(
@@ -322,7 +438,7 @@ private fun ResultSheet(
                     .heightIn(min = 52.dp)
                     .clip(RoundedCornerShape(50))
                     .border(2.dp, VerdeFuerte, RoundedCornerShape(50))
-                    .clickable(onClick = onOtraVez),
+                    .clickable(enabled = scanState !is ScanState.Vacio, onClick = onOtraVez),
                 contentAlignment = Alignment.Center
             ) {
                 Text("Otra vez", color = VerdeFuerte, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
