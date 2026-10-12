@@ -4,6 +4,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.InlineTextContent
 import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.foundation.layout.Arrangement
@@ -77,23 +79,28 @@ fun HomeScreen(onScanClick: () -> Unit, onNavigate: (NavTab) -> Unit, modifier: 
                 .weight(1f)
                 .fillMaxWidth()
                 .windowInsetsPadding(WindowInsets.statusBars)
-                .padding(horizontal = 22.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 18.dp)
         ) {
             Spacer(Modifier.height(4.dp))
             HomeHeader()
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(14.dp))
             ModeToggle(
                 modo = modo,
                 onDocente = { modo = UserMode.DOCENTE },
                 onEstudiante = { modo = UserMode.ESTUDIANTE }
             )
-            Spacer(Modifier.height(18.dp))
-            GreetingBlock(modo)
-            Spacer(Modifier.height(18.dp))
-            FichaIllustration(modifier = Modifier.fillMaxWidth().height(260.dp))
-            Spacer(Modifier.weight(1f, fill = true))
-            ScanButton(onClick = onScanClick, modifier = Modifier.fillMaxWidth())
             Spacer(Modifier.height(14.dp))
+            GreetingBlock(modo)
+            Spacer(Modifier.height(14.dp))
+            FichaIllustration(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 180.dp, max = 240.dp)
+            )
+            Spacer(Modifier.height(18.dp))
+            ScanButton(onClick = onScanClick, modifier = Modifier.fillMaxWidth())
+            Spacer(Modifier.height(16.dp))
         }
         AppBottomNavBar(active = NavTab.INICIO, onSelect = onNavigate)
     }

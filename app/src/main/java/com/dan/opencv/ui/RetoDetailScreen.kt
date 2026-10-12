@@ -6,6 +6,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -49,6 +51,7 @@ import com.dan.opencv.ui.theme.VerdeMedio
  * "AlgoFichas Vistas". Igual que en Retos, el contenido es desplazable en vez de fijo a un
  * alto de lienzo, y el botón final queda fuera del scroll (fijo) como en el mockup.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun RetoDetailScreen(
     retoIndex: Int,
@@ -64,9 +67,9 @@ fun RetoDetailScreen(
                 .fillMaxWidth()
                 .windowInsetsPadding(WindowInsets.statusBars)
                 .background(VerdeMedio)
-                .padding(horizontal = 22.dp)
-                .padding(bottom = 18.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Spacer(Modifier.height(4.dp))
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -91,13 +94,16 @@ fun RetoDetailScreen(
                 reto.titulo,
                 fontFamily = Literata,
                 fontWeight = FontWeight.ExtraBold,
-                fontSize = 26.sp,
-                lineHeight = 30.sp,
+                fontSize = 24.sp,
+                lineHeight = 28.sp,
                 color = Fondo
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Box(Modifier.clip(RoundedCornerShape(50)).background(Brote).padding(horizontal = 11.dp, vertical = 5.dp)) {
-                    Text(reto.nivel, color = VerdeFuerte, fontWeight = FontWeight.ExtraBold, fontSize = 13.sp)
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Box(Modifier.clip(RoundedCornerShape(50)).background(Brote).padding(horizontal = 10.dp, vertical = 4.dp)) {
+                    Text(reto.nivel, color = VerdeFuerte, fontWeight = FontWeight.ExtraBold, fontSize = 12.sp)
                 }
                 OutlineTagOnGreen(reto.fichasTxt)
                 OutlineTagOnGreen(reto.tiempo)
@@ -109,8 +115,8 @@ fun RetoDetailScreen(
                 .weight(1f)
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 22.dp, vertical = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp)
+                .padding(horizontal = 16.dp, vertical = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 SeccionLabel("Enunciado")
@@ -148,8 +154,8 @@ fun RetoDetailScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(Fondo)
-                .padding(horizontal = 22.dp)
-                .padding(top = 12.dp, bottom = 24.dp)
+                .padding(horizontal = 16.dp)
+                .padding(top = 10.dp, bottom = 18.dp)
         ) {
             PhysicalButton(
                 text = "Escanear mi solución",
