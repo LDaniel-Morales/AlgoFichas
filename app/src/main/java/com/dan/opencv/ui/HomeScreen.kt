@@ -71,7 +71,12 @@ import com.dan.opencv.ui.theme.VerdeMedioPresionado
  *    acción todavía: el diseño de origen solo cubre esta pantalla de Inicio.
  */
 @Composable
-fun HomeScreen(onScanClick: () -> Unit, onNavigate: (NavTab) -> Unit, modifier: Modifier = Modifier) {
+fun HomeScreen(
+    onScanClick: () -> Unit,
+    onNavigate: (NavTab) -> Unit,
+    onDevClick: () -> Unit = {},
+    modifier: Modifier = Modifier
+) {
     var modo by rememberSaveable { mutableStateOf(UserMode.DOCENTE) }
 
     Column(modifier = modifier.fillMaxSize().background(Fondo)) {
@@ -84,7 +89,7 @@ fun HomeScreen(onScanClick: () -> Unit, onNavigate: (NavTab) -> Unit, modifier: 
                 .padding(horizontal = 18.dp)
         ) {
             Spacer(Modifier.height(4.dp))
-            HomeHeader()
+            HomeHeader(onMenuClick = onDevClick)
             Spacer(Modifier.height(14.dp))
             ModeToggle(
                 modo = modo,
@@ -110,7 +115,7 @@ fun HomeScreen(onScanClick: () -> Unit, onNavigate: (NavTab) -> Unit, modifier: 
 private enum class UserMode { DOCENTE, ESTUDIANTE }
 
 @Composable
-private fun HomeHeader(modifier: Modifier = Modifier) {
+private fun HomeHeader(onMenuClick: () -> Unit = {}, modifier: Modifier = Modifier) {
     Row(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -125,7 +130,7 @@ private fun HomeHeader(modifier: Modifier = Modifier) {
             )
             AlgoFichasWordmark(fontSize = 24.sp)
         }
-        MenuButton(onClick = { /* pendiente: menú lateral, no está en este diseño */ })
+        MenuButton(onClick = onMenuClick)
     }
 }
 
