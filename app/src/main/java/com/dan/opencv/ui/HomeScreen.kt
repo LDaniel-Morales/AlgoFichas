@@ -10,6 +10,7 @@ import androidx.compose.foundation.text.InlineTextContent
 import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -96,7 +97,7 @@ fun HomeScreen(onScanClick: () -> Unit, onNavigate: (NavTab) -> Unit, modifier: 
             FichaIllustration(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 180.dp, max = 240.dp)
+                    .height(260.dp)
             )
             Spacer(Modifier.height(18.dp))
             ScanButton(onClick = onScanClick, modifier = Modifier.fillMaxWidth())
@@ -250,43 +251,62 @@ private fun GreetingBlock(modo: UserMode, modifier: Modifier = Modifier) {
     }
 }
 
-/** Ilustración decorativa: fichas de cartón "sobre la mesa", como en el mockup. */
+/** Ilustración decorativa: fichas de cartón "sobre la mesa", centradas y escaladas dinámicamente para no recortarse. */
 @Composable
 private fun FichaIllustration(modifier: Modifier = Modifier) {
-    Box(
+    BoxWithConstraints(
         modifier = modifier
             .clip(RoundedCornerShape(24.dp))
             .background(VerdeMedio)
     ) {
-        FichaCard(
-            text = "Inicio",
-            background = TarjetaFondo,
-            rotation = -7f,
+        val baseWidth = 320f
+        val baseHeight = 260f
+        val scale = minOf(maxWidth.value / baseWidth, maxHeight.value / baseHeight).coerceAtMost(1.15f)
+
+        Box(
             modifier = Modifier
-                .offset(x = 26.dp, y = 22.dp)
-                .size(width = 128.dp, height = 72.dp)
-        )
-        FichaCard(
-            text = "Leer X",
-            background = Carton,
-            rotation = 4f,
-            modifier = Modifier
-                .offset(x = 78.dp, y = 90.dp)
-                .size(width = 150.dp, height = 90.dp)
-        )
-        FichaCard(
-            text = "Fin",
-            background = TarjetaFondo,
-            rotation = -3f,
-            modifier = Modifier
-                .offset(x = 140.dp, y = 172.dp)
-                .size(width = 118.dp, height = 68.dp)
-        )
+                .align(Alignment.Center)
+                .size((baseWidth * scale).dp, (baseHeight * scale).dp)
+        ) {
+            FichaCard(
+                text = "Inicio",
+                background = TarjetaFondo,
+                rotation = -7f,
+                fontSize = (26 * scale).sp,
+                modifier = Modifier
+                    .offset(x = (20 * scale).dp, y = (18 * scale).dp)
+                    .size(width = (120 * scale).dp, height = (68 * scale).dp)
+            )
+            FichaCard(
+                text = "Leer X",
+                background = Carton,
+                rotation = 4f,
+                fontSize = (28 * scale).sp,
+                modifier = Modifier
+                    .offset(x = (82 * scale).dp, y = (86 * scale).dp)
+                    .size(width = (144 * scale).dp, height = (86 * scale).dp)
+            )
+            FichaCard(
+                text = "Fin",
+                background = TarjetaFondo,
+                rotation = -3f,
+                fontSize = (26 * scale).sp,
+                modifier = Modifier
+                    .offset(x = (148 * scale).dp, y = (168 * scale).dp)
+                    .size(width = (114 * scale).dp, height = (64 * scale).dp)
+            )
+        }
     }
 }
 
 @Composable
-private fun FichaCard(text: String, background: Color, rotation: Float, modifier: Modifier = Modifier) {
+private fun FichaCard(
+    text: String,
+    background: Color,
+    rotation: Float,
+    fontSize: TextUnit = 30.sp,
+    modifier: Modifier = Modifier
+) {
     Box(
         modifier = modifier
             .graphicsLayer(rotationZ = rotation)
@@ -295,7 +315,7 @@ private fun FichaCard(text: String, background: Color, rotation: Float, modifier
             .background(background),
         contentAlignment = Alignment.Center
     ) {
-        Text(text, fontFamily = Caveat, fontWeight = FontWeight.Bold, fontSize = 30.sp, color = VerdeFuerte)
+        Text(text, fontFamily = Caveat, fontWeight = FontWeight.Bold, fontSize = fontSize, color = VerdeFuerte)
     }
 }
 
