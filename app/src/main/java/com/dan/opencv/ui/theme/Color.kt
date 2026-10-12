@@ -2,10 +2,14 @@ package com.dan.opencv.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-val Purple80 = Color(0xFFD0BCFF)
-val PurpleGrey80 = Color(0xFFCCC2DC)
-val Pink80 = Color(0xFFEFB8C8)
-
-val Purple40 = Color(0xFF6650a4)
-val PurpleGrey40 = Color(0xFF625b71)
-val Pink40 = Color(0xFF7D5260)
+/**
+ * Paleta de AlgoFichas, tomada del proyecto de diseño "AlgoFichas App" (claude.ai/design).
+ * Un único look deliberado (no hay variante oscura en el diseño de origen).
+ */
+val VerdeFuerte = Color(0xFF23372B)
+val VerdeMedio = Color(0xFF459451)
+val VerdeMedioPresionado = Color(0xFF14221A) // sombra "3D" del botón principal al presionar
+val Fondo = Color(0xFFF6F5DD)
+val Brote = Color(0xFFDCEBC8)
+val Carton = Color(0xFFC4A77F)
+val TarjetaFondo = Color(0xFFFBFAEE)
