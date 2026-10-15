@@ -31,6 +31,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -42,6 +43,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.Placeholder
 import androidx.compose.ui.text.PlaceholderVerticalAlign
@@ -71,7 +73,12 @@ import com.dan.opencv.ui.theme.VerdeMedioPresionado
  *    acción todavía: el diseño de origen solo cubre esta pantalla de Inicio.
  */
 @Composable
-fun HomeScreen(onScanClick: () -> Unit, onNavigate: (NavTab) -> Unit, modifier: Modifier = Modifier) {
+fun HomeScreen(
+    onScanClick: () -> Unit,
+    onNavigate: (NavTab) -> Unit,
+    onDevClick: () -> Unit = {},
+    modifier: Modifier = Modifier
+) {
     var modo by rememberSaveable { mutableStateOf(UserMode.DOCENTE) }
 
     Column(modifier = modifier.fillMaxSize().background(Fondo)) {
@@ -84,7 +91,7 @@ fun HomeScreen(onScanClick: () -> Unit, onNavigate: (NavTab) -> Unit, modifier: 
                 .padding(horizontal = 18.dp)
         ) {
             Spacer(Modifier.height(4.dp))
-            HomeHeader()
+            HomeHeader(onDevClick = onDevClick)
             Spacer(Modifier.height(14.dp))
             ModeToggle(
                 modo = modo,
@@ -110,13 +117,41 @@ fun HomeScreen(onScanClick: () -> Unit, onNavigate: (NavTab) -> Unit, modifier: 
 private enum class UserMode { DOCENTE, ESTUDIANTE }
 
 @Composable
-private fun HomeHeader(modifier: Modifier = Modifier) {
+private fun HomeHeader(onDevClick: () -> Unit = {}, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    var tapCount by remember { mutableIntStateOf(0) }
+    var lastTapTime by remember { mutableStateOf(0L) }
+
     Row(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier
+                .clip(RoundedCornerShape(12.dp))
+                .clickable {
+                    val now = System.currentTimeMillis()
+                    if (now - lastTapTime > 1500L) {
+                        tapCount = 1
+                    } else {
+                        tapCount++
+                    }
+                    lastTapTime = now
+
+                    if (tapCount == 5) {
+                        tapCount = 0
+                        android.widget.Toast.makeText(context, "Modo desarrollador activado", android.widget.Toast.LENGTH_SHORT).show()
+                        onDevClick()
+                    } else if (tapCount in 2..4) {
+                        val faltan = 5 - tapCount
+                        android.widget.Toast.makeText(context, "Estás a $faltan toques del panel de rendimiento", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                }
+                .padding(vertical = 4.dp, horizontal = 2.dp)
+        ) {
             Image(
                 painter = painterResource(R.drawable.ic_algofichas_logo),
                 contentDescription = null,
@@ -125,7 +160,7 @@ private fun HomeHeader(modifier: Modifier = Modifier) {
             )
             AlgoFichasWordmark(fontSize = 24.sp)
         }
-        MenuButton(onClick = { /* pendiente: menú lateral, no está en este diseño */ })
+        MenuButton(onClick = { /* Menú de opciones general futuro */ })
     }
 }
 

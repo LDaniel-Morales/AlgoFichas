@@ -20,12 +20,19 @@ object PhotoAnalyzer {
     private const val MAX_WORKING_DIMENSION = 1280
 
     fun analyze(bitmap: Bitmap): FrameResult {
+        val t0 = android.os.SystemClock.elapsedRealtime()
         val working = downscale(bitmap, MAX_WORKING_DIMENSION)
         val rgba = Mat()
         Utils.bitmapToMat(working, rgba)
         return try {
             val deteccion = ShapeDetector.detect(rgba)
             val positioned = FlowPositionAnalyzer.analyze(deteccion.shapes)
+            val elapsed = android.os.SystemClock.elapsedRealtime() - t0
+            com.dan.opencv.dev.DevPerformanceMonitor.record(
+                tag = "OpenCV Foto",
+                durationMs = elapsed,
+                details = "${working.width}x${working.height} | ${deteccion.shapes.size} fichas (${deteccion.fragmentosDescartados} descartadas)"
+            )
             // Más piezas rotas que fichas enteras: el fondo probablemente está confundiendo al detector.
             val aviso = if (deteccion.shapes.isNotEmpty() && deteccion.fragmentosDescartados > deteccion.shapes.size) {
                 "El fondo dificulta ver algunas fichas. Si falta alguna, prueba sobre una superficie lisa de otro color."
