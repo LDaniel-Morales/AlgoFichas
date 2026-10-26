@@ -19,23 +19,34 @@ object PhotoAnalyzer {
     /** Dimensión máxima (en px) del lado más largo antes de analizar. */
     private const val MAX_WORKING_DIMENSION = 1280
 
-    fun analyze(bitmap: Bitmap): FrameResult {
+    suspend fun analyze(bitmap: Bitmap): FrameResult {
         val t0 = android.os.SystemClock.elapsedRealtime()
         val working = downscale(bitmap, MAX_WORKING_DIMENSION)
         val rgba = Mat()
         Utils.bitmapToMat(working, rgba)
         return try {
             val deteccion = ShapeDetector.detect(rgba)
-            val shapesWithRoi = deteccion.shapes.map { shape ->
+            val shapesWithRoiAndOcr = deteccion.shapes.map { shape ->
                 val roi = FichaRoiExtractor.extractRoi(rgba, shape.boundingBox)
-                shape.copy(roiBitmap = roi)
+                val recognized = if (roi != null) {
+                    val enhanced = FichaRoiExtractor.enhanceForOcr(roi) ?: roi
+                    com.dan.opencv.ocr.FichaOcrEngine.recognizeText(enhanced)
+                } else ""
+                val statement = com.dan.opencv.ocr.FichaInstructionParser.parse(recognized, shape.role)
+                val formatted = com.dan.opencv.ocr.FichaInstructionParser.formatDisplay(statement)
+
+                shape.copy(
+                    roiBitmap = roi,
+                    recognizedText = recognized.ifEmpty { null },
+                    parsedInstruction = formatted.ifEmpty { null }
+                )
             }
-            val positioned = FlowPositionAnalyzer.analyze(shapesWithRoi)
+            val positioned = FlowPositionAnalyzer.analyze(shapesWithRoiAndOcr)
             val elapsed = android.os.SystemClock.elapsedRealtime() - t0
             com.dan.opencv.dev.DevPerformanceMonitor.record(
-                tag = "OpenCV Foto",
+                tag = "OpenCV + OCR",
                 durationMs = elapsed,
-                details = "${working.width}x${working.height} | ${deteccion.shapes.size} fichas (${deteccion.fragmentosDescartados} descartadas)"
+                details = "${working.width}x${working.height} | ${deteccion.shapes.size} fichas procesadas"
             )
             // Más piezas rotas que fichas enteras: el fondo probablemente está confundiendo al detector.
             val aviso = if (deteccion.shapes.isNotEmpty() && deteccion.fragmentosDescartados > deteccion.shapes.size) {

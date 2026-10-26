@@ -75,7 +75,11 @@ import com.dan.opencv.ui.theme.VerdeMedio
 import com.dan.opencv.vision.FrameResult
 import com.dan.opencv.vision.PhotoAnalyzer
 import com.dan.opencv.vision.PositionedShape
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.util.concurrent.Executors
 
 private val EstadoBarraOscuro = Color(0xFF1A2A20)
@@ -147,6 +151,7 @@ private fun ScannerContent(reto: Reto?, onBack: () -> Unit, modifier: Modifier =
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val captureExecutor = remember { Executors.newSingleThreadExecutor() }
+    val scope = rememberCoroutineScope()
 
     var scanState by remember { mutableStateOf<ScanState>(ScanState.Vacio) }
     var camera by remember { mutableStateOf<Camera?>(null) }
@@ -195,7 +200,7 @@ private fun ScannerContent(reto: Reto?, onBack: () -> Unit, modifier: Modifier =
                     val capture = imageCapture ?: return@ScannerOverlay
                     scanState = ScanState.Procesando
                     ejecutando = false
-                    capturarYAnalizar(capture, captureExecutor) { result ->
+                    capturarYAnalizar(capture, captureExecutor, scope) { result ->
                         scanState = result
                     }
                 }
@@ -218,33 +223,35 @@ private fun ScannerContent(reto: Reto?, onBack: () -> Unit, modifier: Modifier =
 private fun capturarYAnalizar(
     imageCapture: ImageCapture,
     executor: java.util.concurrent.Executor,
+    coroutineScope: CoroutineScope,
     onDone: (ScanState) -> Unit
 ) {
     imageCapture.takePicture(executor, object : ImageCapture.OnImageCapturedCallback() {
         override fun onCaptureSuccess(image: ImageProxy) {
-            try {
-                val buffer = image.planes[0].buffer
-                val bytes = ByteArray(buffer.remaining())
-                buffer.get(bytes)
-                var bitmap: Bitmap? = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                val rotation = image.imageInfo.rotationDegrees
-                val decoded = bitmap
-                if (decoded != null && rotation != 0) {
-                    val matrix = Matrix().apply { postRotate(rotation.toFloat()) }
-                    bitmap = Bitmap.createBitmap(decoded, 0, 0, decoded.width, decoded.height, matrix, true)
-                }
-                val finalBitmap = bitmap
-                onDone(
-                    if (finalBitmap != null) {
-                        ScanState.Listo(PhotoAnalyzer.analyze(finalBitmap))
-                    } else {
-                        ScanState.ErrorCaptura("No se pudo leer la foto tomada.")
+            coroutineScope.launch(Dispatchers.Default) {
+                try {
+                    val buffer = image.planes[0].buffer
+                    val bytes = ByteArray(buffer.remaining())
+                    buffer.get(bytes)
+                    var bitmap: Bitmap? = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    val rotation = image.imageInfo.rotationDegrees
+                    val decoded = bitmap
+                    if (decoded != null && rotation != 0) {
+                        val matrix = Matrix().apply { postRotate(rotation.toFloat()) }
+                        bitmap = Bitmap.createBitmap(decoded, 0, 0, decoded.width, decoded.height, matrix, true)
                     }
-                )
-            } catch (t: Throwable) {
-                onDone(ScanState.ErrorCaptura(t.message ?: "No se pudo procesar la foto."))
-            } finally {
-                image.close()
+                    val finalBitmap = bitmap
+                    if (finalBitmap != null) {
+                        val result = PhotoAnalyzer.analyze(finalBitmap)
+                        onDone(ScanState.Listo(result))
+                    } else {
+                        onDone(ScanState.ErrorCaptura("No se pudo leer la foto tomada."))
+                    }
+                } catch (t: Throwable) {
+                    onDone(ScanState.ErrorCaptura(t.message ?: "No se pudo procesar la foto."))
+                } finally {
+                    image.close()
+                }
             }
         }
 
@@ -503,11 +510,16 @@ private fun ResultSheet(
 private fun DetectedRow(index: Int, positioned: PositionedShape, detalleTecnico: Boolean) {
     val shape = positioned.shape
     val tipo = shape.type.toFichaTipoOrNull()
-    val nombre = tipo?.nombre ?: shape.role.title
+    val nombre = shape.parsedInstruction ?: (tipo?.nombre ?: shape.role.title)
     val linea = if (detalleTecnico) {
-        "${shape.type.label} · ${shape.colorName} · fila ${positioned.row} · col ${positioned.column}"
+        val ocrPart = shape.recognizedText?.let { "texto: \"$it\" · " } ?: ""
+        "${shape.type.label} · ${shape.colorName} · ${ocrPart}fila ${positioned.row} · col ${positioned.column}"
     } else {
-        "${shape.type.label} (${shape.colorName})"
+        if (shape.parsedInstruction != null && shape.recognizedText != null) {
+            "${shape.type.label} · \"${shape.recognizedText}\""
+        } else {
+            "${shape.type.label} (${shape.colorName})"
+        }
     }
 
     Row(
