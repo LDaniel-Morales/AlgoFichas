@@ -12,6 +12,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import com.dan.opencv.ui.DevScreen
 import com.dan.opencv.ui.HomeScreen
 import com.dan.opencv.ui.NavTab
 import com.dan.opencv.ui.RetoDetailScreen
@@ -19,13 +20,14 @@ import com.dan.opencv.ui.RetosScreen
 import com.dan.opencv.ui.ScanScreen
 import com.dan.opencv.ui.theme.OpencvTheme
 
-/** Las pantallas de la app y cómo se navega entre ellas (sin Navigation Compose: solo 4 destinos). */
+/** Las pantallas de la app y cómo se navega entre ellas (sin Navigation Compose: solo 5 destinos). */
 private sealed class AppScreen : java.io.Serializable {
     data object Home : AppScreen()
     /** [retoIndex] es el reto cuya solución se escanea, o null si se entró desde Inicio. */
     data class Scan(val retoIndex: Int? = null) : AppScreen()
     data object Retos : AppScreen()
     data class RetoDetail(val retoIndex: Int) : AppScreen()
+    data object Dev : AppScreen()
 }
 
 class MainActivity : ComponentActivity() {
@@ -49,6 +51,11 @@ class MainActivity : ComponentActivity() {
                         AppScreen.Home -> HomeScreen(
                             onScanClick = { screen = AppScreen.Scan() },
                             onNavigate = ::onNavTab,
+                            onDevClick = { screen = AppScreen.Dev },
+                            modifier = Modifier.padding(innerPadding)
+                        )
+                        AppScreen.Dev -> DevScreen(
+                            onBack = { screen = AppScreen.Home },
                             modifier = Modifier.padding(innerPadding)
                         )
                         is AppScreen.Scan -> ScanScreen(

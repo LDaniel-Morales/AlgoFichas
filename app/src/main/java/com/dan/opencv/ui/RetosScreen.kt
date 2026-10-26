@@ -6,6 +6,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -45,6 +47,7 @@ import com.dan.opencv.ui.theme.VerdeMedio
  * Los chips "Todos/Sin hacer/Hechos" son decorativos -el diseño de origen tampoco les
  * conecta una acción-, no hay todavía una noción de reto "hecho" que filtrar.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun RetosScreen(onOpenReto: (Int) -> Unit, onNavigate: (NavTab) -> Unit, modifier: Modifier = Modifier) {
     Column(modifier = modifier.fillMaxSize().background(Fondo)) {
@@ -54,17 +57,17 @@ fun RetosScreen(onOpenReto: (Int) -> Unit, onNavigate: (NavTab) -> Unit, modifie
                 .fillMaxWidth()
                 .windowInsetsPadding(WindowInsets.statusBars)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 22.dp)
+                .padding(horizontal = 16.dp)
         ) {
             Spacer(Modifier.height(8.dp))
-            Text("Retos", fontFamily = Literata, fontWeight = FontWeight.ExtraBold, fontSize = 30.sp, color = VerdeFuerte)
+            Text("Retos", fontFamily = Literata, fontWeight = FontWeight.ExtraBold, fontSize = 28.sp, color = VerdeFuerte)
             Spacer(Modifier.height(4.dp))
             Text(
                 "Elige un ejercicio y arma su diagrama con tus fichas.",
                 style = MaterialTheme.typography.bodyLarge,
                 color = VerdeFuerte.copy(alpha = 0.8f)
             )
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(16.dp))
             FilterChipsRow()
             Spacer(Modifier.height(14.dp))
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -83,16 +86,21 @@ fun RetosScreen(onOpenReto: (Int) -> Unit, onNavigate: (NavTab) -> Unit, modifie
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun FilterChipsRow(modifier: Modifier = Modifier) {
-    Row(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    FlowRow(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
         Box(
             Modifier
                 .clip(RoundedCornerShape(50))
                 .background(VerdeFuerte)
-                .padding(horizontal = 14.dp, vertical = 8.dp)
+                .padding(horizontal = 14.dp, vertical = 7.dp)
         ) {
-            Text("Todos · ${RETOS.size}", color = Fondo, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
+            Text("Todos · ${RETOS.size}", color = Fondo, fontWeight = FontWeight.ExtraBold, fontSize = 13.sp)
         }
         FilterChipOutline("Sin hacer")
         FilterChipOutline("Hechos")
@@ -105,30 +113,31 @@ private fun FilterChipOutline(text: String) {
         Modifier
             .clip(RoundedCornerShape(50))
             .border(2.dp, VerdeFuerte.copy(alpha = 0.3f), RoundedCornerShape(50))
-            .padding(horizontal = 14.dp, vertical = 6.dp)
+            .padding(horizontal = 14.dp, vertical = 5.dp)
     ) {
-        Text(text, color = VerdeFuerte, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+        Text(text, color = VerdeFuerte, fontWeight = FontWeight.Bold, fontSize = 13.sp)
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun RetoCard(index: Int, reto: Reto, isGreen: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(min = 88.dp)
+            .heightIn(min = 84.dp)
             .clip(RoundedCornerShape(20.dp))
             .background(if (isGreen) VerdeMedio else VerdeFuerte)
             .clickable(onClick = onClick)
-            .padding(horizontal = 18.dp, vertical = 14.dp),
+            .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(14.dp)
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Text(
             "%02d".format(index + 1),
             fontFamily = Literata,
             fontWeight = FontWeight.ExtraBold,
-            fontSize = 30.sp,
+            fontSize = 26.sp,
             color = Brote
         )
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -136,25 +145,28 @@ private fun RetoCard(index: Int, reto: Reto, isGreen: Boolean, onClick: () -> Un
                 reto.titulo,
                 fontFamily = Literata,
                 fontWeight = FontWeight.ExtraBold,
-                fontSize = 20.sp,
+                fontSize = 18.sp,
                 lineHeight = 22.sp,
                 color = Fondo
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Box(Modifier.clip(RoundedCornerShape(50)).background(Brote).padding(horizontal = 9.dp, vertical = 4.dp)) {
-                    Text(reto.nivel, color = VerdeFuerte, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Box(Modifier.clip(RoundedCornerShape(50)).background(Brote).padding(horizontal = 8.dp, vertical = 3.dp)) {
+                    Text(reto.nivel, color = VerdeFuerte, fontWeight = FontWeight.Bold, fontSize = 11.sp)
                 }
                 Box(
                     Modifier
                         .clip(RoundedCornerShape(50))
                         .border(1.5.dp, Fondo.copy(alpha = 0.6f), RoundedCornerShape(50))
-                        .padding(horizontal = 9.dp, vertical = 4.dp)
+                        .padding(horizontal = 8.dp, vertical = 3.dp)
                 ) {
-                    Text(reto.fichasTxt, color = Fondo, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    Text(reto.fichasTxt, color = Fondo, fontWeight = FontWeight.Bold, fontSize = 11.sp)
                 }
             }
         }
-        Text("›", fontWeight = FontWeight.ExtraBold, fontSize = 26.sp, color = Fondo)
+        Text("›", fontWeight = FontWeight.ExtraBold, fontSize = 24.sp, color = Fondo)
     }
 }
 

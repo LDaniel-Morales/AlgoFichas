@@ -4,10 +4,13 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.InlineTextContent
 import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -28,6 +31,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -39,6 +43,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.Placeholder
 import androidx.compose.ui.text.PlaceholderVerticalAlign
@@ -68,7 +73,12 @@ import com.dan.opencv.ui.theme.VerdeMedioPresionado
  *    acción todavía: el diseño de origen solo cubre esta pantalla de Inicio.
  */
 @Composable
-fun HomeScreen(onScanClick: () -> Unit, onNavigate: (NavTab) -> Unit, modifier: Modifier = Modifier) {
+fun HomeScreen(
+    onScanClick: () -> Unit,
+    onNavigate: (NavTab) -> Unit,
+    onDevClick: () -> Unit = {},
+    modifier: Modifier = Modifier
+) {
     var modo by rememberSaveable { mutableStateOf(UserMode.DOCENTE) }
 
     Column(modifier = modifier.fillMaxSize().background(Fondo)) {
@@ -77,23 +87,28 @@ fun HomeScreen(onScanClick: () -> Unit, onNavigate: (NavTab) -> Unit, modifier: 
                 .weight(1f)
                 .fillMaxWidth()
                 .windowInsetsPadding(WindowInsets.statusBars)
-                .padding(horizontal = 22.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 18.dp)
         ) {
             Spacer(Modifier.height(4.dp))
-            HomeHeader()
-            Spacer(Modifier.height(18.dp))
+            HomeHeader(onDevClick = onDevClick)
+            Spacer(Modifier.height(14.dp))
             ModeToggle(
                 modo = modo,
                 onDocente = { modo = UserMode.DOCENTE },
                 onEstudiante = { modo = UserMode.ESTUDIANTE }
             )
-            Spacer(Modifier.height(18.dp))
-            GreetingBlock(modo)
-            Spacer(Modifier.height(18.dp))
-            FichaIllustration(modifier = Modifier.fillMaxWidth().height(260.dp))
-            Spacer(Modifier.weight(1f, fill = true))
-            ScanButton(onClick = onScanClick, modifier = Modifier.fillMaxWidth())
             Spacer(Modifier.height(14.dp))
+            GreetingBlock(modo)
+            Spacer(Modifier.height(14.dp))
+            FichaIllustration(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(260.dp)
+            )
+            Spacer(Modifier.height(18.dp))
+            ScanButton(onClick = onScanClick, modifier = Modifier.fillMaxWidth())
+            Spacer(Modifier.height(16.dp))
         }
         AppBottomNavBar(active = NavTab.INICIO, onSelect = onNavigate)
     }
@@ -102,13 +117,41 @@ fun HomeScreen(onScanClick: () -> Unit, onNavigate: (NavTab) -> Unit, modifier: 
 private enum class UserMode { DOCENTE, ESTUDIANTE }
 
 @Composable
-private fun HomeHeader(modifier: Modifier = Modifier) {
+private fun HomeHeader(onDevClick: () -> Unit = {}, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    var tapCount by remember { mutableIntStateOf(0) }
+    var lastTapTime by remember { mutableStateOf(0L) }
+
     Row(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier
+                .clip(RoundedCornerShape(12.dp))
+                .clickable {
+                    val now = System.currentTimeMillis()
+                    if (now - lastTapTime > 1500L) {
+                        tapCount = 1
+                    } else {
+                        tapCount++
+                    }
+                    lastTapTime = now
+
+                    if (tapCount == 5) {
+                        tapCount = 0
+                        android.widget.Toast.makeText(context, "Modo desarrollador activado", android.widget.Toast.LENGTH_SHORT).show()
+                        onDevClick()
+                    } else if (tapCount in 2..4) {
+                        val faltan = 5 - tapCount
+                        android.widget.Toast.makeText(context, "Estás a $faltan toques del panel de rendimiento", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                }
+                .padding(vertical = 4.dp, horizontal = 2.dp)
+        ) {
             Image(
                 painter = painterResource(R.drawable.ic_algofichas_logo),
                 contentDescription = null,
@@ -117,7 +160,7 @@ private fun HomeHeader(modifier: Modifier = Modifier) {
             )
             AlgoFichasWordmark(fontSize = 24.sp)
         }
-        MenuButton(onClick = { /* pendiente: menú lateral, no está en este diseño */ })
+        MenuButton(onClick = { /* Menú de opciones general futuro */ })
     }
 }
 
@@ -243,43 +286,62 @@ private fun GreetingBlock(modo: UserMode, modifier: Modifier = Modifier) {
     }
 }
 
-/** Ilustración decorativa: fichas de cartón "sobre la mesa", como en el mockup. */
+/** Ilustración decorativa: fichas de cartón "sobre la mesa", centradas y escaladas dinámicamente para no recortarse. */
 @Composable
 private fun FichaIllustration(modifier: Modifier = Modifier) {
-    Box(
+    BoxWithConstraints(
         modifier = modifier
             .clip(RoundedCornerShape(24.dp))
             .background(VerdeMedio)
     ) {
-        FichaCard(
-            text = "Inicio",
-            background = TarjetaFondo,
-            rotation = -7f,
+        val baseWidth = 320f
+        val baseHeight = 260f
+        val scale = minOf(maxWidth.value / baseWidth, maxHeight.value / baseHeight).coerceAtMost(1.15f)
+
+        Box(
             modifier = Modifier
-                .offset(x = 26.dp, y = 22.dp)
-                .size(width = 128.dp, height = 72.dp)
-        )
-        FichaCard(
-            text = "Leer X",
-            background = Carton,
-            rotation = 4f,
-            modifier = Modifier
-                .offset(x = 78.dp, y = 90.dp)
-                .size(width = 150.dp, height = 90.dp)
-        )
-        FichaCard(
-            text = "Fin",
-            background = TarjetaFondo,
-            rotation = -3f,
-            modifier = Modifier
-                .offset(x = 140.dp, y = 172.dp)
-                .size(width = 118.dp, height = 68.dp)
-        )
+                .align(Alignment.Center)
+                .size((baseWidth * scale).dp, (baseHeight * scale).dp)
+        ) {
+            FichaCard(
+                text = "Inicio",
+                background = TarjetaFondo,
+                rotation = -7f,
+                fontSize = (26 * scale).sp,
+                modifier = Modifier
+                    .offset(x = (20 * scale).dp, y = (18 * scale).dp)
+                    .size(width = (120 * scale).dp, height = (68 * scale).dp)
+            )
+            FichaCard(
+                text = "Leer X",
+                background = Carton,
+                rotation = 4f,
+                fontSize = (28 * scale).sp,
+                modifier = Modifier
+                    .offset(x = (82 * scale).dp, y = (86 * scale).dp)
+                    .size(width = (144 * scale).dp, height = (86 * scale).dp)
+            )
+            FichaCard(
+                text = "Fin",
+                background = TarjetaFondo,
+                rotation = -3f,
+                fontSize = (26 * scale).sp,
+                modifier = Modifier
+                    .offset(x = (148 * scale).dp, y = (168 * scale).dp)
+                    .size(width = (114 * scale).dp, height = (64 * scale).dp)
+            )
+        }
     }
 }
 
 @Composable
-private fun FichaCard(text: String, background: Color, rotation: Float, modifier: Modifier = Modifier) {
+private fun FichaCard(
+    text: String,
+    background: Color,
+    rotation: Float,
+    fontSize: TextUnit = 30.sp,
+    modifier: Modifier = Modifier
+) {
     Box(
         modifier = modifier
             .graphicsLayer(rotationZ = rotation)
@@ -288,7 +350,7 @@ private fun FichaCard(text: String, background: Color, rotation: Float, modifier
             .background(background),
         contentAlignment = Alignment.Center
     ) {
-        Text(text, fontFamily = Caveat, fontWeight = FontWeight.Bold, fontSize = 30.sp, color = VerdeFuerte)
+        Text(text, fontFamily = Caveat, fontWeight = FontWeight.Bold, fontSize = fontSize, color = VerdeFuerte)
     }
 }
 

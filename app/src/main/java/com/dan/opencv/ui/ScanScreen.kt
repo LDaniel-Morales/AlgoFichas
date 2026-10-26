@@ -15,6 +15,7 @@ import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -53,6 +54,8 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
@@ -500,11 +503,11 @@ private fun ResultSheet(
 private fun DetectedRow(index: Int, positioned: PositionedShape, detalleTecnico: Boolean) {
     val shape = positioned.shape
     val tipo = shape.type.toFichaTipoOrNull()
-    val nombre = tipo?.nombre ?: shape.type.label.replaceFirstChar { it.uppercase() }
+    val nombre = tipo?.nombre ?: shape.role.title
     val linea = if (detalleTecnico) {
-        "${shape.colorName} · fila ${positioned.row} · col ${positioned.column}"
+        "${shape.type.label} · ${shape.colorName} · fila ${positioned.row} · col ${positioned.column}"
     } else {
-        shape.colorName
+        "${shape.type.label} (${shape.colorName})"
     }
 
     Row(
@@ -514,7 +517,7 @@ private fun DetectedRow(index: Int, positioned: PositionedShape, detalleTecnico:
             .background(TarjetaFondo)
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Box(
             modifier = Modifier.size(24.dp).clip(CircleShape).background(VerdeMedio),
@@ -524,8 +527,19 @@ private fun DetectedRow(index: Int, positioned: PositionedShape, detalleTecnico:
         }
         if (tipo != null) FichaShapeIcon(tipo) else Box(Modifier.size(18.dp).clip(CircleShape).background(VerdeFuerte.copy(alpha = 0.3f)))
         Column(modifier = Modifier.weight(1f)) {
-            Text(nombre, fontWeight = FontWeight.ExtraBold, fontSize = 15.sp, color = VerdeFuerte)
-            Text(linea, fontFamily = IbmPlexMono, fontSize = 12.sp, color = VerdeFuerte.copy(alpha = 0.72f))
+            Text(nombre, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp, color = VerdeFuerte)
+            Text(linea, fontFamily = IbmPlexMono, fontSize = 11.sp, color = VerdeFuerte.copy(alpha = 0.72f))
+        }
+        shape.roiBitmap?.let { bmp ->
+            Image(
+                bitmap = bmp.asImageBitmap(),
+                contentDescription = "Recorte de ficha",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .size(width = 46.dp, height = 32.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .border(1.dp, VerdeFuerte.copy(alpha = 0.2f), RoundedCornerShape(6.dp))
+            )
         }
     }
 }

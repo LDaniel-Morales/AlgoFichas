@@ -88,10 +88,10 @@ fun FichaShapeIcon(tipo: FichaTipo, modifier: Modifier = Modifier) {
  * Devuelve null para formas sin equivalente directo (conectores, óvalo, triángulo, etc.).
  */
 fun ShapeType.toFichaTipoOrNull(): FichaTipo? = when (this) {
-    ShapeType.STADIUM -> FichaTipo.TERMINAL
+    ShapeType.STADIUM, ShapeType.OVAL -> FichaTipo.TERMINAL
     ShapeType.PARALLELOGRAM, ShapeType.KEYBOARD_INPUT -> FichaTipo.ENTRADA
     ShapeType.RECTANGLE, ShapeType.SQUARE, ShapeType.PREDEFINED_PROCESS -> FichaTipo.PROCESO
-    ShapeType.DIAMOND -> FichaTipo.DECISION
-    ShapeType.DOCUMENT -> FichaTipo.SALIDA
+    ShapeType.DIAMOND, ShapeType.LOOP -> FichaTipo.DECISION
+    ShapeType.DOCUMENT, ShapeType.DISPLAY -> FichaTipo.SALIDA
     else -> null
 }
