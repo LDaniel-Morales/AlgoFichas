@@ -1,5 +1,6 @@
 package com.dan.opencv.vision
 
+import android.graphics.Bitmap
 import org.opencv.core.Rect
 
 /**
@@ -13,6 +14,7 @@ import org.opencv.core.Rect
  * @param centerY centroide Y en píxeles.
  * @param boundingBox rectángulo delimitador en píxeles.
  * @param areaPx área del contorno en píxeles cuadrados.
+ * @param roiBitmap imagen recortada de la región interna de la ficha (ROI) para OCR y visualización.
  */
 data class DetectedShape(
     val id: Int,
@@ -21,8 +23,12 @@ data class DetectedShape(
     val centerX: Double,
     val centerY: Double,
     val boundingBox: Rect,
-    val areaPx: Double
-)
+    val areaPx: Double,
+    val roiBitmap: Bitmap? = null
+) {
+    /** Rol estándar en el diagrama de flujo correspondiente a su geometría. */
+    val role: FlowRole get() = type.role
+}
 
 /**
  * Salida de [ShapeDetector.detect]: las fichas encontradas y cuántos contornos se descartaron

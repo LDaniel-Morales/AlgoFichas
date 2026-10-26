@@ -26,7 +26,11 @@ object PhotoAnalyzer {
         Utils.bitmapToMat(working, rgba)
         return try {
             val deteccion = ShapeDetector.detect(rgba)
-            val positioned = FlowPositionAnalyzer.analyze(deteccion.shapes)
+            val shapesWithRoi = deteccion.shapes.map { shape ->
+                val roi = FichaRoiExtractor.extractRoi(rgba, shape.boundingBox)
+                shape.copy(roiBitmap = roi)
+            }
+            val positioned = FlowPositionAnalyzer.analyze(shapesWithRoi)
             val elapsed = android.os.SystemClock.elapsedRealtime() - t0
             com.dan.opencv.dev.DevPerformanceMonitor.record(
                 tag = "OpenCV Foto",
