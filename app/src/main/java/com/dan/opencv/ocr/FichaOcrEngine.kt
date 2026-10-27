@@ -40,7 +40,8 @@ object FichaOcrEngine {
     }
 
     /**
-     * Limpia caracteres parásitos habituales del OCR sobre bordes de papel o sombras.
+     * Limpia caracteres parásitos habituales del OCR sobre bordes de papel o sombras
+     * y normaliza a minúsculas para garantizar insensibilidad a mayúsculas/minúsculas.
      */
     private fun cleanOcrResult(text: String): String {
         return text
@@ -50,5 +51,6 @@ object FichaOcrEngine {
             .joinToString(" ")
             .replace(Regex("[_~`|^]+"), "")
             .trim()
+            .lowercase()
     }
 }

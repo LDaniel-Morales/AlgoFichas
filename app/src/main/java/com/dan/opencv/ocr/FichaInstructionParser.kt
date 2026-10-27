@@ -32,7 +32,7 @@ object FichaInstructionParser {
     private val REGEX_END = Regex("(?i)^(?:fin|end|termina|final)")
 
     fun parse(rawText: String, expectedRole: FlowRole = FlowRole.UNKNOWN): ParsedStatement {
-        val trimmed = rawText.trim().replace(Regex("[¿?¡!]"), "").trim()
+        val trimmed = rawText.trim().replace(Regex("[¿?¡!]"), "").trim().lowercase()
         if (trimmed.isEmpty()) return ParsedStatement.Generic("")
 
         // 1. Terminal (Inicio / Fin)
@@ -45,18 +45,18 @@ object FichaInstructionParser {
 
         // 2. Lectura / Entrada
         REGEX_READ.find(trimmed)?.let { match ->
-            val variable = match.groupValues[1]
+            val variable = match.groupValues[1].lowercase()
             return ParsedStatement.Input(variableName = variable, raw = trimmed)
         }
         if (expectedRole == FlowRole.INPUT && !trimmed.contains("=") && !REGEX_PRINT.containsMatchIn(trimmed)) {
             val words = trimmed.split(Regex("\\s+"))
-            val variableCandidate = words.lastOrNull()?.filter { it.isLetterOrDigit() || it == '_' } ?: trimmed
+            val variableCandidate = (words.lastOrNull()?.filter { it.isLetterOrDigit() || it == '_' } ?: trimmed).lowercase()
             return ParsedStatement.Input(variableName = variableCandidate, raw = trimmed)
         }
 
         // 3. Salida / Impresión
         REGEX_PRINT.find(trimmed)?.let { match ->
-            val expr = match.groupValues[1]
+            val expr = match.groupValues[1].lowercase()
             return ParsedStatement.Output(expression = expr, raw = trimmed)
         }
         if (expectedRole == FlowRole.OUTPUT && !trimmed.contains("=")) {
@@ -65,14 +65,14 @@ object FichaInstructionParser {
 
         // 4. Asignación / Proceso
         REGEX_ASSIGNMENT.find(trimmed)?.let { match ->
-            val target = match.groupValues[1].trim()
-            val expr = match.groupValues[2].trim()
+            val target = match.groupValues[1].trim().lowercase()
+            val expr = match.groupValues[2].trim().lowercase()
             return ParsedStatement.Assignment(targetVar = target, expression = expr, raw = trimmed)
         }
 
         // 5. Decisión / Condición
         if (expectedRole == FlowRole.DECISION || trimmed.contains(Regex("[><=]|==|!=|<=|>="))) {
-            val cond = trimmed.replace(Regex("(?i)^(?:si|if)\\s+"), "")
+            val cond = trimmed.replace(Regex("(?i)^(?:si|if)\\s+"), "").lowercase()
             return ParsedStatement.Decision(condition = cond, raw = trimmed)
         }
 
