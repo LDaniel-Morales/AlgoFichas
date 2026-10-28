@@ -24,7 +24,9 @@ data class DetectedShape(
     val centerY: Double,
     val boundingBox: Rect,
     val areaPx: Double,
-    val roiBitmap: Bitmap? = null
+    val roiBitmap: Bitmap? = null,
+    val recognizedText: String? = null,
+    val parsedInstruction: String? = null
 ) {
     /** Rol estándar en el diagrama de flujo correspondiente a su geometría. */
     val role: FlowRole get() = type.role
