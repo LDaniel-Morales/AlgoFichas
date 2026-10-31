@@ -691,7 +691,8 @@ object ShapeDetector {
                 roiHeight * 0.6, roiHeight * 0.2
             )
             for (i in 0 until lines.rows()) {
-                val l = lines.get(i, 0)
+                val l = lines.get(i, 0) ?: continue
+                if (l.size < 4) continue
                 val dx = l[2] - l[0]
                 val dy = l[3] - l[1]
                 val angleFromVertical = abs(abs(Math.toDegrees(atan2(dy, dx))) - 90.0)
